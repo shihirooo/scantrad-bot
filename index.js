@@ -1,0 +1,556 @@
+require('dotenv').config();
+const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
+const fs = require('fs');
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+  ],
+});
+
+const DB_FILE = './data.json';
+
+function loadData() {
+  if (!fs.existsSync(DB_FILE)) return {};
+  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+}
+
+function saveData(data) {
+  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+}
+
+const ROLES_ORDER = ['raws', 'trad', 'clean', 'check', 'edit', 'qcheck'];
+
+function getRoleEmoji(role, done) {
+  if (done) return '✅';
+  const map = { raws: '📄', trad: '✍️', clean: '🧹', edit: '🖊️', check: '👁️', qcheck: '🔎' };
+  return map[role] || '❓';
+}
+
+function getAvailableTodos(chapter) {
+  const done = r => chapter[r] === true;
+  const exists = r => chapter[r] !== undefined;
+  const pending = r => chapter[r] === false;
+  const available = [];
+
+  if (exists('raws') && pending('raws')) available.push('raws');
+  if (exists('trad') && pending('trad')) available.push('trad');
+  if (exists('clean') && pending('clean') && done('raws')) available.push('clean');
+  if (exists('check') && pending('check') && done('trad')) available.push('check');
+  if (exists('edit') && pending('edit') && done('trad') && done('clean')) available.push('edit');
+  if (exists('qcheck') && pending('qcheck') && done('edit')) available.push('qcheck');
+
+  return available;
+}
+
+function getStatusBar(chapter) {
+  return ROLES_ORDER.map(r => {
+    if (chapter[r] === undefined) return null;
+    if (chapter[r] === true) return `~~${r}~~`;
+    const available = getAvailableTodos(chapter);
+    if (available.includes(r)) return `**${r}**`;
+    return r;
+  }).filter(Boolean).join(' → ');
+}
+
+function nextTodo(chapter) {
+  const available = getAvailableTodos(chapter);
+  return available.length ? available[0] : null;
+}
+
+function isChapterDone(chapter) {
+  return ROLES_ORDER.every(r => chapter[r] === undefined || chapter[r] === true);
+}
+
+function findProjectByChannel(data, channelId) {
+  return Object.entries(data).find(([, p]) =>
+    p.channelId === channelId || (p.channelIds && p.channelIds.includes(channelId))
+  )?.[0];
+}
+
+client.on('ready', () => {
+  console.log(`✅ Bot connecté en tant que ${client.user.tag}`);
+});
+
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+  const content = message.content.trim();
+  const lower = content.toLowerCase();
+
+  // ─── !aide ───────────────────────────────────────────────
+  if (lower === '!aide') {
+    const embed = new EmbedBuilder()
+      .setTitle('📖 Commandes du bot Scantrad')
+      .setColor(0xc9a4ff)
+      .addFields(
+        { name: '⚙️ Setup', value: '`!projet <nom> <roles>` — Créer un projet (ex: `!projet Honey raws,trad,clean,edit,check,qcheck`)\n`!lier <nom>` — Lier ce salon à un projet\n`!delier` — Délier ce salon du projet\n`!ajoutrole <role>` — Ajouter un rôle au projet\n`!supprole <role>` — Supprimer un rôle du projet\n`!projets` — Lister tous les projets' },
+        { name: '📺 Saisons', value: '`!ajoutsaison <nom> <debut>-<fin>` — Créer une saison (ex: `!ajoutsaison S1 1-54`)\n`!ajoutsaison <nom> <debut>` — Saison sans fin connue (ex: `!ajoutsaison S4 128`)\n`!saisons` — Voir toutes les saisons\n`!chapitres <saison>` — Chapitres d\'une saison (ex: `!chapitres S4`)' },
+        { name: '📌 Chapitres', value: '`Chapitre <n> : <role>` — Marquer terminé (ex: `Chapitre 145 : raws, trad`)\n`Chapitre <n>-<n> : <role>` — Plusieurs chapitres (ex: `Chapitre 145-146-147 : raws`)\n`!fait <n> <role>` — Marquer un rôle terminé\n`!majo <debut>-<fin> <role>` — Marquer en masse (ex: `!majo 1-140 raws`)\n`!chapitres` — Les 5 prochains chapitres en cours\n`!chapitre <n>` — Détail d\'un chapitre\n`!suppchap <n>` — Supprimer un chapitre' },
+        { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales du projet\n`!mestaches` — Vos tâches assignées\n`!monprojet` — Vos rôles sur ce projet\n`!assigner <role> @user` — Assigner un rôle' },
+        { name: '❓ Aide', value: '`!aide` — Afficher cette aide' }
+      )
+      .setFooter({ text: 'Cookie Voie Lactée ✨' });
+    return message.reply({ embeds: [embed] });
+  }
+
+  // ─── !projets ────────────────────────────────────────────
+  if (lower === '!projets') {
+    const data = loadData();
+    const names = Object.keys(data);
+    if (!names.length) return message.reply('Aucun projet créé pour l\'instant.');
+    const list = names.map(n => {
+      const p = data[n];
+      const total = Object.keys(p.chapters || {}).length;
+      const done = Object.values(p.chapters || {}).filter(c => isChapterDone(c)).length;
+      return `• **${n}** — ${done}/${total} chapitres terminés`;
+    }).join('\n');
+    return message.reply(`📚 **Projets en cours :**\n${list}`);
+  }
+
+  // ─── !projet <nom> <roles> ───────────────────────────────
+  if (lower.startsWith('!projet ')) {
+    const parts = content.slice(8).trim().split(' ');
+    const name = parts[0];
+    const rolesRaw = parts[1] || 'raws,trad,clean,edit,qcheck';
+    const roles = rolesRaw.split(',').map(r => r.trim().toLowerCase());
+    const data = loadData();
+    if (data[name]) return message.reply(`Le projet **${name}** existe déjà.`);
+    data[name] = { roles, chapters: {}, channelId: null, assignments: {} };
+    saveData(data);
+    return message.reply(`✅ Projet **${name}** créé avec les rôles : ${roles.join(', ')}\nUtilise \`!lier ${name}\` dans le salon de ce projet.`);
+  }
+
+  // ─── !lier <nom> ─────────────────────────────────────────
+  if (lower.startsWith('!lier ')) {
+    const name = content.slice(6).trim();
+    const data = loadData();
+    if (!data[name]) return message.reply(`Projet **${name}** introuvable.`);
+    if (!data[name].channelIds) data[name].channelIds = [];
+    if (data[name].channelId && !data[name].channelIds.includes(data[name].channelId)) {
+      data[name].channelIds.push(data[name].channelId);
+    }
+    if (!data[name].channelIds.includes(message.channelId)) data[name].channelIds.push(message.channelId);
+    data[name].channelId = message.channelId;
+    saveData(data);
+    const count = data[name].channelIds.length;
+    return message.reply(`✅ Ce salon est maintenant lié au projet **${name}**. (${count} salon${count > 1 ? 's' : ''} lié${count > 1 ? 's' : ''})`);
+  }
+
+  // ─── !delier ─────────────────────────────────────────────
+  if (lower === '!delier') {
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    project.channelIds = (project.channelIds || []).filter(id => id !== message.channelId);
+    if (project.channelId === message.channelId) project.channelId = project.channelIds[0] || null;
+    saveData(data);
+    return message.reply(`✅ Ce salon a été délié du projet **${projectName}**.`);
+  }
+
+  // ─── Détecter "Chapitre N : role" (format naturel) ───────
+  const naturalMatch = content.match(/^chapitre\s+([\d]+[a-zA-Z]?(?:-[\d]+[a-zA-Z]?)*)\s*:\s*(.+)$/i);
+  if (naturalMatch) {
+    const chNums = naturalMatch[1].split('-').map(s => s.trim());
+    const roles = naturalMatch[2].split(',').map(r => r.trim().toLowerCase());
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet. Utilise `!lier <nom>`.');
+    const project = data[projectName];
+    for (const chNum of chNums) {
+      if (!project.chapters[chNum]) {
+        project.chapters[chNum] = {};
+        project.roles.forEach(r => project.chapters[chNum][r] = false);
+      }
+      for (const role of roles) {
+        if (project.chapters[chNum][role] === undefined) continue;
+        project.chapters[chNum][role] = true;
+        if (isChapterDone(project.chapters[chNum])) project.chapters[chNum].done = true;
+      }
+    }
+    saveData(data);
+    const chList = chNums.join(', ');
+    const roleList = roles.join(', ');
+    const lastCh = project.chapters[chNums[chNums.length - 1]];
+    const available = getAvailableTodos(lastCh);
+    const reply = available.length
+      ? `✅ **Ch.${chList} — ${roleList}** marqué(s) terminé(s) !\nEn attente : **${available.join(', ')}**`
+      : `🎉 **Ch.${chList}** entièrement terminé(s) !`;
+    return message.reply(reply);
+  }
+
+  // ─── !fait <n> <role> ────────────────────────────────────
+  if (lower.startsWith('!fait ')) {
+    const parts = content.slice(6).trim().split(' ');
+    const chNum = parts[0];
+    const role = parts[1]?.toLowerCase();
+    if (!chNum || !role) return message.reply('Usage : `!fait <chapitre> <role>`');
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    if (!project.chapters[chNum]) {
+      project.chapters[chNum] = {};
+      project.roles.forEach(r => project.chapters[chNum][r] = false);
+    }
+    if (project.chapters[chNum][role] === undefined) return message.reply(`Rôle **${role}** inconnu.`);
+    project.chapters[chNum][role] = true;
+    if (isChapterDone(project.chapters[chNum])) project.chapters[chNum].done = true;
+    saveData(data);
+    const available = getAvailableTodos(project.chapters[chNum]);
+    return message.reply(available.length
+      ? `✅ Ch.${chNum} — ${role} terminé ! En attente : **${available.join(', ')}**`
+      : `🎉 Ch.${chNum} entièrement terminé !`);
+  }
+
+  // ─── !chapitre <n> ───────────────────────────────────────
+  if (lower.startsWith('!chapitre ')) {
+    const chNum = content.slice(10).trim();
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    const ch = project.chapters[chNum];
+    if (!ch) return message.reply(`Ch.${chNum} non trouvé. Utilise \`Chapitre ${chNum} : raws\` pour commencer.`);
+    const lines = project.roles.map(r => `${ch[r] ? '✅' : '⬜'} ${r}`).join('\n');
+    const embed = new EmbedBuilder()
+      .setTitle(`📖 ${projectName} — Chapitre ${chNum}`)
+      .setDescription(lines)
+      .setColor(isChapterDone(ch) ? 0x22c55e : 0xc9a4ff);
+    return message.reply({ embeds: [embed] });
+  }
+
+  // ─── !chapitres ──────────────────────────────────────────
+  if (lower === '!chapitres' || lower === '!chapitres all') {
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    const chapters = Object.entries(project.chapters)
+      .sort(([a], [b]) => {
+        const numA = parseFloat(a);
+        const numB = parseFloat(b);
+        if (numA !== numB) return numA - numB;
+        return a.localeCompare(b);
+      });
+    const pending = chapters.filter(([, ch]) => !isChapterDone(ch)).slice(0, 5);
+    if (!pending.length && !chapters.length) return message.reply('🎉 Tous les chapitres sont terminés !');
+    const toShow = [...pending];
+    if (toShow.length < 5 && chapters.length) {
+      const lastKnown = Math.floor(parseFloat(chapters[chapters.length - 1][0]));
+      for (let i = 1; toShow.length < 5; i++) {
+        toShow.push([String(lastKnown + i), null]);
+      }
+    }
+    const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
+    const lines = toShow.map(([n, ch]) => {
+      if (!ch) {
+        const fakeCh = {};
+        project.roles.forEach(r => fakeCh[r] = false);
+        const bar = getStatusBar(fakeCh);
+        return `**Ch.${n}** — en attente : **${premiers.join(', ')}**\n${bar}`;
+      }
+      const available = getAvailableTodos(ch);
+      const attente = available.length ? `— en attente : **${available.join(', ')}**` : '— terminé !';
+      return `🔄 **Ch.${n}** ${attente}`;
+    }).join('\n');
+    const embed = new EmbedBuilder()
+      .setTitle(`📚 ${projectName} — Chapitres en cours`)
+      .setDescription(lines)
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
+  }
+
+  // ─── !avancement ─────────────────────────────────────────
+  if (lower === '!avancement') {
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    const allChapters = Object.entries(project.chapters)
+      .sort(([a], [b]) => {
+        const numA = parseFloat(a);
+        const numB = parseFloat(b);
+        if (numA !== numB) return numA - numB;
+        return a.localeCompare(b);
+      });
+    const pending = allChapters.filter(([, ch]) => !isChapterDone(ch)).slice(0, 5);
+    if (!pending.length) return message.reply('🎉 Tout est à jour ! Aucun chapitre en attente.');
+    const toShow = [...pending];
+    if (toShow.length < 5) {
+      const lastKnown = Math.floor(parseFloat(allChapters[allChapters.length - 1][0]));
+      for (let i = 1; toShow.length < 5; i++) {
+        toShow.push([String(lastKnown + i), null]);
+      }
+    }
+const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
+    const lines = toShow.map(([n, ch]) => {
+      if (!ch) {
+        const fakeCh = {};
+        project.roles.forEach(r => fakeCh[r] = false);
+        const bar = getStatusBar(fakeCh);
+        return `**Ch.${n}** — en attente : **${premiers.map(r => r.toUpperCase()).join(', ')}**\n${bar}`;
+      }
+      const available = getAvailableTodos(ch);
+      const bar = getStatusBar(ch);
+      return `**Ch.${n}** — en attente : **${available.map(r => r.toUpperCase()).join(', ')}**\n${bar}`;
+    }).join('\n\n');
+    const embed = new EmbedBuilder()
+      .setTitle(`📋 ${projectName} — Ce qu'il reste à faire`)
+      .setDescription(lines)
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
+  }
+
+  // ─── !stats ──────────────────────────────────────────────
+  if (lower === '!stats') {
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    const chapters = Object.entries(project.chapters);
+    const done = chapters.filter(([, c]) => isChapterDone(c)).length;
+    // Trouver la saison en cours (dernière saison dont le début est <= dernier chap terminé)
+    const saisons = project.saisons || {};
+    const dernierTermine = Math.max(...chapters.filter(([, c]) => isChapterDone(c)).map(([n]) => parseFloat(n)));
+    const saisonEnCours = Object.values(saisons)
+      .filter(s => s.debut <= dernierTermine)
+      .sort((a, b) => b.debut - a.debut)[0];
+    const total = saisonEnCours?.fin ?? null;
+    const header = total
+      ? `**${projectName}** — ${done}/${total} terminés`
+      : `**${projectName}** — ${done} terminés`;
+    const roleStats = project.roles.map(r => {
+      const count = chapters.filter(([, c]) => c[r] === true).length;
+      return `${r}: ${count}${total ? `/${total}` : ''}`;
+    }).join(' | ');
+    const roleLines = project.roles.map(r => {
+      const count = chapters.filter(([, c]) => c[r] === true).length;
+      return `**${r.toUpperCase()}** : ${count}${total ? `/${total}` : ''}`;
+    }).join('\n');
+    const embed = new EmbedBuilder()
+      .setTitle(`📊 ${projectName} — ${total ? `${done}/${total} terminés` : `${done} terminés`}`)
+      .setDescription(roleLines)
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
+  }
+
+  // ─── !assigner <role> @user ──────────────────────────────
+  if (lower.startsWith('!assigner ')) {
+    const parts = content.slice(10).trim().split(' ');
+    const role = parts[0]?.toLowerCase();
+    const userId = message.mentions.users.first()?.id;
+    if (!role || !userId) return message.reply('Usage : `!assigner <role> @user`');
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    if (!project.assignments[userId]) project.assignments[userId] = [];
+    if (!project.assignments[userId].includes(role)) project.assignments[userId].push(role);
+    saveData(data);
+    return message.reply(`✅ <@${userId}> assigné(e) au rôle **${role}** sur **${projectName}**.`);
+  }
+
+  // ─── !mestaches ──────────────────────────────────────────
+  if (lower === '!mestaches') {
+    const data = loadData();
+    const userId = message.author.id;
+    const lines = [];
+    for (const [name, project] of Object.entries(data)) {
+      const userRoles = project.assignments[userId] || [];
+      if (!userRoles.length) continue;
+      // Chapitres existants avec tâches en attente
+      const pending = Object.entries(project.chapters)
+        .filter(([, ch]) => userRoles.some(r => ch[r] === false))
+        .sort(([a], [b]) => parseFloat(a) - parseFloat(b));
+      // Chapitres non commencés dans les saisons en cours
+      const notStarted = [];
+      for (const [, saison] of Object.entries(project.saisons || {})) {
+        const fin = saison.fin ?? Math.max(...Object.keys(project.chapters).map(n => parseInt(n)).filter(n => !isNaN(n)));
+        for (let i = saison.debut; i <= fin; i++) {
+          const n = String(i);
+          if (!project.chapters[n] && userRoles.some(r => ['raws', 'trad'].includes(r))) {
+            notStarted.push(n);
+          }
+        }
+      }
+      if (pending.length || notStarted.length) {
+        lines.push(`**${name}** :`);
+        pending.forEach(([n, ch]) => {
+          const todo = userRoles.filter(r => ch[r] === false).map(r => r.toUpperCase()).join(', ');
+          lines.push(`  • Ch.${n} — ${todo}`);
+        });
+        if (notStarted.length) {
+          const first = notStarted[0];
+          const last = notStarted[notStarted.length - 1];
+          const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
+          lines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
+        }
+      }
+    }
+    if (!lines.length) return message.reply('✅ Tu n\'as aucune tâche en attente !');
+    const embed = new EmbedBuilder()
+      .setTitle(`📋 Tâches de ${message.author.username}`)
+      .setDescription(lines.join('\n'))
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
+  }
+
+  // ─── !suppchap <n> ───────────────────────────────────────
+  if (lower.startsWith('!suppchap ')) {
+    const chNum = content.slice(10).trim();
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    if (!data[projectName].chapters[chNum]) return message.reply(`Chapitre **${chNum}** introuvable.`);
+    delete data[projectName].chapters[chNum];
+    saveData(data);
+    return message.reply(`✅ Chapitre **${chNum}** supprimé.`);
+  }
+
+  // ─── !ajoutrole <role> ───────────────────────────────────
+  if (lower.startsWith('!ajoutrole ')) {
+    const role = content.slice(11).trim().toLowerCase();
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    if (project.roles.includes(role)) return message.reply(`Le rôle **${role}** existe déjà.`);
+    project.roles.push(role);
+    Object.values(project.chapters).forEach(ch => ch[role] = false);
+    saveData(data);
+    return message.reply(`✅ Rôle **${role}** ajouté au projet **${projectName}** et à tous les chapitres existants.`);
+  }
+
+  // ─── !supprole <role> ────────────────────────────────────
+  if (lower.startsWith('!supprole ')) {
+    const role = content.slice(10).trim().toLowerCase();
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    if (!project.roles.includes(role)) return message.reply(`Rôle **${role}** introuvable.`);
+    project.roles = project.roles.filter(r => r !== role);
+    Object.values(project.chapters).forEach(ch => delete ch[role]);
+    saveData(data);
+    return message.reply(`✅ Rôle **${role}** supprimé du projet **${projectName}**.`);
+  }
+
+  // ─── !ajoutsaison <nom> <debut>-<fin> ────────────────────
+  if (lower.startsWith('!ajoutsaison ')) {
+    const parts = content.slice(13).trim().split(' ');
+    const nom = parts[0];
+    const range = parts[1];
+    const match = range?.match(/^(\d+)(?:-(\d+))?$/);
+    if (!match) return message.reply('Usage : `!ajoutsaison S1 1-54` ou `!ajoutsaison S4 128` si fin inconnue');
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    if (!data[projectName].saisons) data[projectName].saisons = {};
+    data[projectName].saisons[nom] = { debut: Number(match[1]), fin: match[2] ? Number(match[2]) : null };
+    saveData(data);
+    return message.reply(`✅ Saison **${nom}** enregistrée : chapitres ${match[1]} à ${match[2] ?? '?'}.`);
+  }
+
+  // ─── !saisons ────────────────────────────────────────────
+  if (lower === '!saisons') {
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const saisons = data[projectName].saisons || {};
+    if (!Object.keys(saisons).length) return message.reply('Aucune saison enregistrée. Utilise `!ajoutsaison S1 1-54`');
+    const lines = Object.entries(saisons).map(([nom, s]) => `**${nom}** : Ch.${s.debut} ~ Ch.${s.fin ?? '?'}`).join('\n');
+    return message.reply(`📺 Saisons de **${projectName}** :\n${lines}`);
+  }
+
+  // ─── !chapitres <saison> ─────────────────────────────────
+  if (lower.startsWith('!chapitres ')) {
+    const saisonNom = content.slice(11).trim();
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    const saison = project.saisons?.[saisonNom];
+    if (!saison) return message.reply(`Saison **${saisonNom}** introuvable. Vérifie avec \`!saisons\``);
+    const finReelle = saison.fin ?? Math.max(...Object.keys(project.chapters).map(n => parseInt(n)).filter(n => n >= saison.debut && !isNaN(n)));
+    const allChaps = [];
+    for (let i = saison.debut; i <= finReelle; i++) {
+      const variants = [String(i)];
+      Object.keys(project.chapters).forEach(k => {
+        if (k.match(new RegExp(`^${i}[a-zA-Z]$`))) variants.push(k);
+      });
+      variants.sort((a, b) => a.localeCompare(b));
+      const hasLetterVariants = variants.length > 1;
+      for (const v of variants) {
+        if (hasLetterVariants && v === String(i)) continue;
+        const ch = project.chapters[v];
+        allChaps.push([v, ch || null]);
+      }
+    }
+    const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
+    const lines = allChaps.map(([n, ch]) => {
+      if (!ch) return `⬜ **Ch.${n}** — en attente : **${premiers.join(', ')}**`;
+      const available = getAvailableTodos(ch);
+      const attente = available.length ? `— en attente : **${available.join(', ')}**` : '— terminé !';
+      return `${isChapterDone(ch) ? '✅' : '🔄'} **Ch.${n}** ${attente}`;
+    }).join('\n');
+    if (!lines) return message.reply(`Aucun chapitre pour la saison **${saisonNom}**.`);
+    const embed = new EmbedBuilder()
+      .setTitle(`📺 ${projectName} — Saison ${saisonNom} (Ch.${saison.debut}~${saison.fin ?? '?'})`)
+      .setDescription(lines + (saison.fin ? `\n\n🏁 **Fin de la saison ${saisonNom}**` : ''))
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
+  }
+
+  // ─── !majo <debut>-<fin> <role> ──────────────────────────
+  if (lower.startsWith('!majo ')) {
+    const parts = content.slice(6).trim().split(' ');
+    const range = parts[0];
+    const role = parts[1]?.toLowerCase();
+    const match = range.match(/^(\d+)-(\d+)$/);
+    if (!match || !role) return message.reply('Usage : `!majo 1-140 raws`');
+    const start = Number(match[1]);
+    const end = Number(match[2]);
+    if (end - start > 500) return message.reply('Maximum 500 chapitres à la fois.');
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    for (let i = start; i <= end; i++) {
+      const n = String(i);
+      if (!project.chapters[n]) {
+        project.chapters[n] = {};
+        project.roles.forEach(r => project.chapters[n][r] = false);
+      }
+      if (project.chapters[n][role] !== undefined) {
+        const available = getAvailableTodos(project.chapters[n]);
+        if (available.includes(role) || project.chapters[n][role] === true) {
+          project.chapters[n][role] = true;
+        }
+      }
+    }
+    saveData(data);
+    return message.reply(`✅ Chapitres ${start} à ${end} — **${role}** marqués comme terminés !`);
+  }
+
+  // ─── !monprojet ──────────────────────────────────────────
+  if (lower === '!monprojet') {
+    const data = loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    const userId = message.author.id;
+    const roles = project.assignments[userId] || [];
+    if (!roles.length) return message.reply(`Tu n\'es assigné(e) à aucun rôle sur **${projectName}**.`);
+    return message.reply(`Sur **${projectName}**, tu es assigné(e) : ${roles.join(', ')}`);
+  }
+});
+
+const TOKEN = process.env.DISCORD_TOKEN;
+if (!TOKEN) {
+  console.error('❌ DISCORD_TOKEN manquant ! Mets-le dans .env');
+  process.exit(1);
+}
+client.login(TOKEN);
