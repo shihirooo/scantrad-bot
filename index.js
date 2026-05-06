@@ -625,7 +625,7 @@ client.on('messageCreate', async (message) => {
         .filter(([, roles]) => roles.includes(r))
         .map(([userId]) => `<@${userId}>`)
         .join(', ');
-      return `\`${r.toUpperCase()}\` ${membres || '*non assigné*'}`;
+      return `**${r.toUpperCase()}** : ${membres || '*non assigné*'}`;
     }).join('\n');
     const embed = new EmbedBuilder()
       .setTitle(`👥 Équipe — ${projectName}`)
