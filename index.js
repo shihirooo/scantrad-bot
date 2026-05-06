@@ -599,6 +599,27 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ Rôle **${role}** retiré de tes assignations sur **${projectName}**.`);
   }
 
+// ─── !equipe ─────────────────────────────────────────────
+  if (lower === '!equipe') {
+    const data = await loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    const assignments = project.assignments || {};
+    const lines = project.roles.map(r => {
+      const membres = Object.entries(assignments)
+        .filter(([, roles]) => roles.includes(r))
+        .map(([userId]) => `<@${userId}>`)
+        .join(', ');
+      return `**${r.toUpperCase()}** : ${membres || 'non assigné'}`;
+    }).join('\n');
+    const embed = new EmbedBuilder()
+      .setTitle(`👥 Équipe — ${projectName}`)
+      .setDescription(lines)
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
+  }
+
   // ─── !monprojet ──────────────────────────────────────────
   if (lower === '!monprojet') {
     const data = await loadData();
