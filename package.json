@@ -1,14 +1,13 @@
 {
   "name": "scantrad-bot",
   "version": "1.0.0",
-  "description": "Bot Discord pour gérer les avancement de projets scantrad",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node index.js"
   },
   "dependencies": {
     "discord.js": "^14.0.0",
-    "dotenv": "^16.0.0"
+    "dotenv": "^16.0.0",
+    "mongoose": "^7.0.0"
   }
 }
