@@ -135,7 +135,7 @@ client.on('messageCreate', async (message) => {
   // ─── !projets ────────────────────────────────────────────
   if (lower === '!projets') {
     const data = await loadData();
-    const names = Object.keys(data);
+    const names = Object.keys(data).sort();
     if (!names.length) return message.reply('Aucun projet créé pour l\'instant.');
     const list = names.map(n => {
       const p = data[n];
