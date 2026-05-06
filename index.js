@@ -188,10 +188,19 @@ client.on('messageCreate', async (message) => {
   }
 
   // ─── Détecter "Chapitre N : role" (format naturel) ───────
-  const naturalMatch = content.match(/^chapitre\s+([\d]+[a-zA-Z]?(?:-[\d]+[a-zA-Z]?)*)\s*:\s*(.+)$/i);
+  const naturalMatch = content.match(/^chapitre\s+([\d]+[a-zA-Z]?(?:(?:-|à|a)[\d]+[a-zA-Z]?)*)\s*:\s*(.+)$/i);
   if (naturalMatch) {
-    const chNums = naturalMatch[1].split('-').map(s => s.trim());
-    const roles = naturalMatch[2].split(',').map(r => r.trim().toLowerCase());
+    const rangeMatch = naturalMatch[1].match(/^(\d+)\s*(?:à|a)\s*(\d+)$/i);
+    let chNums;
+    if (rangeMatch) {
+      chNums = [];
+      for (let i = Number(rangeMatch[1]); i <= Number(rangeMatch[2]); i++) {
+        chNums.push(String(i));
+      }
+    } else {
+      chNums = naturalMatch[1].split('-').map(s => s.trim());
+    }
+    const roles = naturalMatch[2].split(',').map(r => r.trim().toLowerCase().split(' ')[0]).filter(r => project.roles.includes(r));
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet. Utilise `!lier <nom>`.');
