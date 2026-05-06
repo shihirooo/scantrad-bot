@@ -204,11 +204,11 @@ client.on('messageCreate', async (message) => {
     } else {
       chNums = naturalMatch[1].split('-').map(s => s.trim());
     }
-    const roles = naturalMatch[2].split(',').map(r => r.trim().toLowerCase().split(' ')[0]).filter(r => project.roles.includes(r));
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet. Utilise `!lier <nom>`.');
     const project = data[projectName];
+    const roles = naturalMatch[2].split(',').map(r => r.trim().toLowerCase().split(' ')[0]).filter(r => project.roles.includes(r));
     for (const chNum of chNums) {
       if (!project.chapters[chNum]) {
         project.chapters[chNum] = {};
