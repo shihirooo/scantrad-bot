@@ -363,7 +363,7 @@ client.on('messageCreate', async (message) => {
       .sort((a, b) => b.debut - a.debut)
       .find(s => s.fin === null || s.debut <= dernierTermine + 1);
     const total = saisonEnCours?.fin ?? null;
-    const roleLines = project.roles.map(r => {
+    const roleLines = ROLES_ORDER.filter(r => project.roles.includes(r)).map(r => {
       const count = chapters.filter(([, c]) => c[r] === true).length;
       return `**${r.toUpperCase()}** : ${count}${total ? `/${total}` : ''}`;
     }).join('\n');
