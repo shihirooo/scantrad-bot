@@ -568,6 +568,15 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ Chapitres ${start} à ${end} — **${role}** marqués comme terminés !`);
   }
 
+// ─── !suppprojet <nom> ───────────────────────────────────
+  if (lower.startsWith('!suppprojet ')) {
+    const name = content.slice(12).trim();
+    const data = await loadData();
+    if (!data[name]) return message.reply(`Projet **${name}** introuvable.`);
+    await deleteProject(name);
+    return message.reply(`✅ Projet **${name}** supprimé.`);
+  }
+
   // ─── !monprojet ──────────────────────────────────────────
   if (lower === '!monprojet') {
     const data = await loadData();
