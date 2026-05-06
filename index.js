@@ -360,9 +360,8 @@ client.on('messageCreate', async (message) => {
     const saisons = project.saisons || {};
     const dernierTermine = Math.max(...chapters.filter(([, c]) => isChapterDone(c)).map(([n]) => parseFloat(n)));
     const saisonEnCours = Object.values(saisons)
-      .filter(s => s.fin === null || s.fin >= dernierTermine)
-      .sort((a, b) => a.debut - b.debut)[0] 
-      || Object.values(saisons).sort((a, b) => b.debut - a.debut)[0];
+      .sort((a, b) => b.debut - a.debut)
+      .find(s => s.fin === null || s.debut <= dernierTermine + 1);
     const total = saisonEnCours?.fin ?? null;
     const roleLines = project.roles.map(r => {
       const count = chapters.filter(([, c]) => c[r] === true).length;
