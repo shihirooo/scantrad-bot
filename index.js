@@ -143,7 +143,11 @@ client.on('messageCreate', async (message) => {
       const done = Object.values(p.chapters || {}).filter(c => isChapterDone(c)).length;
       return `• **${n}** — ${done}/${total} chapitres terminés`;
     }).join('\n');
-    return message.reply(`📚 **Projets en cours :**\n${list}`);
+    const embed = new EmbedBuilder()
+      .setTitle('📚 Projets en cours')
+      .setDescription(list)
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
   }
 
   // ─── !projet <nom> <roles> ───────────────────────────────
