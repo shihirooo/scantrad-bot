@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, EmbedBuilder } = require('discord.js');
-const fs = require('fs');
+const mongoose = require('mongoose');
 
 const client = new Client({
   intents: [
@@ -10,38 +10,75 @@ const client = new Client({
   ],
 });
 
-const DB_FILE = './data.json';
+// --- MongoDB Schema ---
+const projectSchema = new mongoose.Schema({
+  name: String,
+  roles: [String],
+  channelId: String,
+  channelIds: [String],
+  assignments: { type: Map, of: [String] },
+  saisons: { type: Map, of: { debut: Number, fin: Number } },
+  chapters: { type: Map, of: Map },
+});
 
-function loadData() {
-  if (!fs.existsSync(DB_FILE)) return {};
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+const Project = mongoose.model('Project', projectSchema);
+
+// --- Helpers ---
+async function loadData() {
+  const projects = await Project.find();
+  const data = {};
+  for (const p of projects) {
+    data[p.name] = {
+      roles: p.roles,
+      channelId: p.channelId,
+      channelIds: p.channelIds || [],
+      assignments: Object.fromEntries(p.assignments || new Map()),
+      saisons: Object.fromEntries(
+        [...(p.saisons || new Map())].map(([k, v]) => [k, { debut: v.debut, fin: v.fin }])
+      ),
+      chapters: Object.fromEntries(
+        [...(p.chapters || new Map())].map(([k, v]) => [k, Object.fromEntries(v)])
+      ),
+    };
+  }
+  return data;
 }
 
-function saveData(data) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+async function saveProject(name, project) {
+  await Project.findOneAndUpdate(
+    { name },
+    {
+      name,
+      roles: project.roles,
+      channelId: project.channelId,
+      channelIds: project.channelIds || [],
+      assignments: project.assignments || {},
+      saisons: project.saisons || {},
+      chapters: Object.fromEntries(
+        Object.entries(project.chapters || {}).map(([k, v]) => [k, v])
+      ),
+    },
+    { upsert: true, new: true }
+  );
+}
+
+async function deleteProject(name) {
+  await Project.deleteOne({ name });
 }
 
 const ROLES_ORDER = ['raws', 'trad', 'clean', 'check', 'edit', 'qcheck'];
-
-function getRoleEmoji(role, done) {
-  if (done) return '✅';
-  const map = { raws: '📄', trad: '✍️', clean: '🧹', edit: '🖊️', check: '👁️', qcheck: '🔎' };
-  return map[role] || '❓';
-}
 
 function getAvailableTodos(chapter) {
   const done = r => chapter[r] === true;
   const exists = r => chapter[r] !== undefined;
   const pending = r => chapter[r] === false;
   const available = [];
-
   if (exists('raws') && pending('raws')) available.push('raws');
   if (exists('trad') && pending('trad')) available.push('trad');
   if (exists('clean') && pending('clean') && done('raws')) available.push('clean');
   if (exists('check') && pending('check') && done('trad')) available.push('check');
   if (exists('edit') && pending('edit') && done('trad') && done('clean')) available.push('edit');
   if (exists('qcheck') && pending('qcheck') && done('edit')) available.push('qcheck');
-
   return available;
 }
 
@@ -97,7 +134,7 @@ client.on('messageCreate', async (message) => {
 
   // ─── !projets ────────────────────────────────────────────
   if (lower === '!projets') {
-    const data = loadData();
+    const data = await loadData();
     const names = Object.keys(data);
     if (!names.length) return message.reply('Aucun projet créé pour l\'instant.');
     const list = names.map(n => {
@@ -115,38 +152,38 @@ client.on('messageCreate', async (message) => {
     const name = parts[0];
     const rolesRaw = parts[1] || 'raws,trad,clean,edit,qcheck';
     const roles = rolesRaw.split(',').map(r => r.trim().toLowerCase());
-    const data = loadData();
+    const data = await loadData();
     if (data[name]) return message.reply(`Le projet **${name}** existe déjà.`);
-    data[name] = { roles, chapters: {}, channelId: null, assignments: {} };
-    saveData(data);
+    await saveProject(name, { roles, chapters: {}, channelId: null, channelIds: [], assignments: {}, saisons: {} });
     return message.reply(`✅ Projet **${name}** créé avec les rôles : ${roles.join(', ')}\nUtilise \`!lier ${name}\` dans le salon de ce projet.`);
   }
 
   // ─── !lier <nom> ─────────────────────────────────────────
   if (lower.startsWith('!lier ')) {
     const name = content.slice(6).trim();
-    const data = loadData();
+    const data = await loadData();
     if (!data[name]) return message.reply(`Projet **${name}** introuvable.`);
-    if (!data[name].channelIds) data[name].channelIds = [];
-    if (data[name].channelId && !data[name].channelIds.includes(data[name].channelId)) {
-      data[name].channelIds.push(data[name].channelId);
+    const project = data[name];
+    if (!project.channelIds) project.channelIds = [];
+    if (project.channelId && !project.channelIds.includes(project.channelId)) {
+      project.channelIds.push(project.channelId);
     }
-    if (!data[name].channelIds.includes(message.channelId)) data[name].channelIds.push(message.channelId);
-    data[name].channelId = message.channelId;
-    saveData(data);
-    const count = data[name].channelIds.length;
+    if (!project.channelIds.includes(message.channelId)) project.channelIds.push(message.channelId);
+    project.channelId = message.channelId;
+    await saveProject(name, project);
+    const count = project.channelIds.length;
     return message.reply(`✅ Ce salon est maintenant lié au projet **${name}**. (${count} salon${count > 1 ? 's' : ''} lié${count > 1 ? 's' : ''})`);
   }
 
   // ─── !delier ─────────────────────────────────────────────
   if (lower === '!delier') {
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
     project.channelIds = (project.channelIds || []).filter(id => id !== message.channelId);
     if (project.channelId === message.channelId) project.channelId = project.channelIds[0] || null;
-    saveData(data);
+    await saveProject(projectName, project);
     return message.reply(`✅ Ce salon a été délié du projet **${projectName}**.`);
   }
 
@@ -155,7 +192,7 @@ client.on('messageCreate', async (message) => {
   if (naturalMatch) {
     const chNums = naturalMatch[1].split('-').map(s => s.trim());
     const roles = naturalMatch[2].split(',').map(r => r.trim().toLowerCase());
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet. Utilise `!lier <nom>`.');
     const project = data[projectName];
@@ -170,13 +207,13 @@ client.on('messageCreate', async (message) => {
         if (isChapterDone(project.chapters[chNum])) project.chapters[chNum].done = true;
       }
     }
-    saveData(data);
+    await saveProject(projectName, project);
     const chList = chNums.join(', ');
     const roleList = roles.join(', ');
     const lastCh = project.chapters[chNums[chNums.length - 1]];
     const available = getAvailableTodos(lastCh);
     const reply = available.length
-      ? `✅ **Ch.${chList} — ${roleList}** marqué(s) terminé(s) !\nEn attente : **${available.join(', ')}**`
+      ? `✅ **Ch.${chList} — ${roleList}** marqué(s) terminé(s) !\nEn attente : **${available.map(r => r.toUpperCase()).join(', ')}**`
       : `🎉 **Ch.${chList}** entièrement terminé(s) !`;
     return message.reply(reply);
   }
@@ -187,7 +224,7 @@ client.on('messageCreate', async (message) => {
     const chNum = parts[0];
     const role = parts[1]?.toLowerCase();
     if (!chNum || !role) return message.reply('Usage : `!fait <chapitre> <role>`');
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
@@ -198,17 +235,17 @@ client.on('messageCreate', async (message) => {
     if (project.chapters[chNum][role] === undefined) return message.reply(`Rôle **${role}** inconnu.`);
     project.chapters[chNum][role] = true;
     if (isChapterDone(project.chapters[chNum])) project.chapters[chNum].done = true;
-    saveData(data);
+    await saveProject(projectName, project);
     const available = getAvailableTodos(project.chapters[chNum]);
     return message.reply(available.length
-      ? `✅ Ch.${chNum} — ${role} terminé ! En attente : **${available.join(', ')}**`
+      ? `✅ Ch.${chNum} — ${role} terminé ! En attente : **${available.map(r => r.toUpperCase()).join(', ')}**`
       : `🎉 Ch.${chNum} entièrement terminé !`);
   }
 
   // ─── !chapitre <n> ───────────────────────────────────────
   if (lower.startsWith('!chapitre ')) {
     const chNum = content.slice(10).trim();
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
@@ -224,7 +261,7 @@ client.on('messageCreate', async (message) => {
 
   // ─── !chapitres ──────────────────────────────────────────
   if (lower === '!chapitres' || lower === '!chapitres all') {
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
@@ -246,14 +283,9 @@ client.on('messageCreate', async (message) => {
     }
     const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
     const lines = toShow.map(([n, ch]) => {
-      if (!ch) {
-        const fakeCh = {};
-        project.roles.forEach(r => fakeCh[r] = false);
-        const bar = getStatusBar(fakeCh);
-        return `**Ch.${n}** — en attente : **${premiers.join(', ')}**\n${bar}`;
-      }
+      if (!ch) return `⬜ **Ch.${n}** — en attente : **${premiers.map(r => r.toUpperCase()).join(', ')}**`;
       const available = getAvailableTodos(ch);
-      const attente = available.length ? `— en attente : **${available.join(', ')}**` : '— terminé !';
+      const attente = available.length ? `— en attente : **${available.map(r => r.toUpperCase()).join(', ')}**` : '— terminé !';
       return `🔄 **Ch.${n}** ${attente}`;
     }).join('\n');
     const embed = new EmbedBuilder()
@@ -265,7 +297,7 @@ client.on('messageCreate', async (message) => {
 
   // ─── !avancement ─────────────────────────────────────────
   if (lower === '!avancement') {
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
@@ -285,7 +317,7 @@ client.on('messageCreate', async (message) => {
         toShow.push([String(lastKnown + i), null]);
       }
     }
-const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
+    const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
     const lines = toShow.map(([n, ch]) => {
       if (!ch) {
         const fakeCh = {};
@@ -306,26 +338,18 @@ const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
 
   // ─── !stats ──────────────────────────────────────────────
   if (lower === '!stats') {
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
     const chapters = Object.entries(project.chapters);
     const done = chapters.filter(([, c]) => isChapterDone(c)).length;
-    // Trouver la saison en cours (dernière saison dont le début est <= dernier chap terminé)
     const saisons = project.saisons || {};
     const dernierTermine = Math.max(...chapters.filter(([, c]) => isChapterDone(c)).map(([n]) => parseFloat(n)));
     const saisonEnCours = Object.values(saisons)
       .filter(s => s.debut <= dernierTermine)
       .sort((a, b) => b.debut - a.debut)[0];
     const total = saisonEnCours?.fin ?? null;
-    const header = total
-      ? `**${projectName}** — ${done}/${total} terminés`
-      : `**${projectName}** — ${done} terminés`;
-    const roleStats = project.roles.map(r => {
-      const count = chapters.filter(([, c]) => c[r] === true).length;
-      return `${r}: ${count}${total ? `/${total}` : ''}`;
-    }).join(' | ');
     const roleLines = project.roles.map(r => {
       const count = chapters.filter(([, c]) => c[r] === true).length;
       return `**${r.toUpperCase()}** : ${count}${total ? `/${total}` : ''}`;
@@ -343,29 +367,27 @@ const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
     const role = parts[0]?.toLowerCase();
     const userId = message.mentions.users.first()?.id;
     if (!role || !userId) return message.reply('Usage : `!assigner <role> @user`');
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
     if (!project.assignments[userId]) project.assignments[userId] = [];
     if (!project.assignments[userId].includes(role)) project.assignments[userId].push(role);
-    saveData(data);
+    await saveProject(projectName, project);
     return message.reply(`✅ <@${userId}> assigné(e) au rôle **${role}** sur **${projectName}**.`);
   }
 
   // ─── !mestaches ──────────────────────────────────────────
   if (lower === '!mestaches') {
-    const data = loadData();
+    const data = await loadData();
     const userId = message.author.id;
     const lines = [];
     for (const [name, project] of Object.entries(data)) {
       const userRoles = project.assignments[userId] || [];
       if (!userRoles.length) continue;
-      // Chapitres existants avec tâches en attente
       const pending = Object.entries(project.chapters)
         .filter(([, ch]) => userRoles.some(r => ch[r] === false))
         .sort(([a], [b]) => parseFloat(a) - parseFloat(b));
-      // Chapitres non commencés dans les saisons en cours
       const notStarted = [];
       for (const [, saison] of Object.entries(project.saisons || {})) {
         const fin = saison.fin ?? Math.max(...Object.keys(project.chapters).map(n => parseInt(n)).filter(n => !isNaN(n)));
@@ -401,40 +423,41 @@ const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
   // ─── !suppchap <n> ───────────────────────────────────────
   if (lower.startsWith('!suppchap ')) {
     const chNum = content.slice(10).trim();
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
-    if (!data[projectName].chapters[chNum]) return message.reply(`Chapitre **${chNum}** introuvable.`);
-    delete data[projectName].chapters[chNum];
-    saveData(data);
+    const project = data[projectName];
+    if (!project.chapters[chNum]) return message.reply(`Chapitre **${chNum}** introuvable.`);
+    delete project.chapters[chNum];
+    await saveProject(projectName, project);
     return message.reply(`✅ Chapitre **${chNum}** supprimé.`);
   }
 
   // ─── !ajoutrole <role> ───────────────────────────────────
   if (lower.startsWith('!ajoutrole ')) {
     const role = content.slice(11).trim().toLowerCase();
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
     if (project.roles.includes(role)) return message.reply(`Le rôle **${role}** existe déjà.`);
     project.roles.push(role);
     Object.values(project.chapters).forEach(ch => ch[role] = false);
-    saveData(data);
+    await saveProject(projectName, project);
     return message.reply(`✅ Rôle **${role}** ajouté au projet **${projectName}** et à tous les chapitres existants.`);
   }
 
   // ─── !supprole <role> ────────────────────────────────────
   if (lower.startsWith('!supprole ')) {
     const role = content.slice(10).trim().toLowerCase();
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
     if (!project.roles.includes(role)) return message.reply(`Rôle **${role}** introuvable.`);
     project.roles = project.roles.filter(r => r !== role);
     Object.values(project.chapters).forEach(ch => delete ch[role]);
-    saveData(data);
+    await saveProject(projectName, project);
     return message.reply(`✅ Rôle **${role}** supprimé du projet **${projectName}**.`);
   }
 
@@ -445,18 +468,19 @@ const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
     const range = parts[1];
     const match = range?.match(/^(\d+)(?:-(\d+))?$/);
     if (!match) return message.reply('Usage : `!ajoutsaison S1 1-54` ou `!ajoutsaison S4 128` si fin inconnue');
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
-    if (!data[projectName].saisons) data[projectName].saisons = {};
-    data[projectName].saisons[nom] = { debut: Number(match[1]), fin: match[2] ? Number(match[2]) : null };
-    saveData(data);
+    const project = data[projectName];
+    if (!project.saisons) project.saisons = {};
+    project.saisons[nom] = { debut: Number(match[1]), fin: match[2] ? Number(match[2]) : null };
+    await saveProject(projectName, project);
     return message.reply(`✅ Saison **${nom}** enregistrée : chapitres ${match[1]} à ${match[2] ?? '?'}.`);
   }
 
   // ─── !saisons ────────────────────────────────────────────
   if (lower === '!saisons') {
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const saisons = data[projectName].saisons || {};
@@ -468,7 +492,7 @@ const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
   // ─── !chapitres <saison> ─────────────────────────────────
   if (lower.startsWith('!chapitres ')) {
     const saisonNom = content.slice(11).trim();
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
@@ -491,9 +515,9 @@ const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
     }
     const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
     const lines = allChaps.map(([n, ch]) => {
-      if (!ch) return `⬜ **Ch.${n}** — en attente : **${premiers.join(', ')}**`;
+      if (!ch) return `⬜ **Ch.${n}** — en attente : **${premiers.map(r => r.toUpperCase()).join(', ')}**`;
       const available = getAvailableTodos(ch);
-      const attente = available.length ? `— en attente : **${available.join(', ')}**` : '— terminé !';
+      const attente = available.length ? `— en attente : **${available.map(r => r.toUpperCase()).join(', ')}**` : '— terminé !';
       return `${isChapterDone(ch) ? '✅' : '🔄'} **Ch.${n}** ${attente}`;
     }).join('\n');
     if (!lines) return message.reply(`Aucun chapitre pour la saison **${saisonNom}**.`);
@@ -514,7 +538,7 @@ const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
     const start = Number(match[1]);
     const end = Number(match[2]);
     if (end - start > 500) return message.reply('Maximum 500 chapitres à la fois.');
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
@@ -531,13 +555,13 @@ const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
         }
       }
     }
-    saveData(data);
+    await saveProject(projectName, project);
     return message.reply(`✅ Chapitres ${start} à ${end} — **${role}** marqués comme terminés !`);
   }
 
   // ─── !monprojet ──────────────────────────────────────────
   if (lower === '!monprojet') {
-    const data = loadData();
+    const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
@@ -549,8 +573,23 @@ const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
 });
 
 const TOKEN = process.env.DISCORD_TOKEN;
+const MONGO_URI = process.env.MONGO_URI;
+
 if (!TOKEN) {
-  console.error('❌ DISCORD_TOKEN manquant ! Mets-le dans .env');
+  console.error('❌ DISCORD_TOKEN manquant !');
   process.exit(1);
 }
-client.login(TOKEN);
+if (!MONGO_URI) {
+  console.error('❌ MONGO_URI manquant !');
+  process.exit(1);
+}
+
+mongoose.connect(MONGO_URI)
+  .then(() => {
+    console.log('✅ MongoDB connecté !');
+    client.login(TOKEN);
+  })
+  .catch(err => {
+    console.error('❌ Erreur MongoDB :', err);
+    process.exit(1);
+  });
