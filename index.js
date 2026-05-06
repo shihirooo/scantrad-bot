@@ -264,7 +264,7 @@ client.on('messageCreate', async (message) => {
     const project = data[projectName];
     const ch = project.chapters[chNum];
     if (!ch) return message.reply(`Ch.${chNum} non trouvé. Utilise \`Chapitre ${chNum} : raws\` pour commencer.`);
-    const lines = project.roles.map(r => `${ch[r] ? '✅' : '⬜'} ${r}`).join('\n');
+    const lines = project.roles.map(r => `${ch[r] ? '✅' : '🔄'} ${r}`).join('\n');
     const embed = new EmbedBuilder()
       .setTitle(`📖 ${projectName} — Chapitre ${chNum}`)
       .setDescription(lines)
@@ -296,7 +296,7 @@ client.on('messageCreate', async (message) => {
     }
     const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
     const lines = toShow.map(([n, ch]) => {
-      if (!ch) return `⬜ **Ch.${n}** — en attente : **${premiers.map(r => r.toUpperCase()).join(', ')}**`;
+      if (!ch) return `🔄 **Ch.${n}** — en attente : **${premiers.map(r => r.toUpperCase()).join(', ')}**`;
       const available = getAvailableTodos(ch);
       const attente = available.length ? `— en attente : **${available.map(r => r.toUpperCase()).join(', ')}**` : '— terminé !';
       return `🔄 **Ch.${n}** ${attente}`;
@@ -532,7 +532,7 @@ client.on('messageCreate', async (message) => {
     }
     const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
     const lines = allChaps.map(([n, ch]) => {
-      if (!ch) return `⬜ **Ch.${n}** — en attente : **${premiers.map(r => r.toUpperCase()).join(', ')}**`;
+      if (!ch) return `🔄 **Ch.${n}** — en attente : **${premiers.map(r => r.toUpperCase()).join(', ')}**`;
       const available = getAvailableTodos(ch);
       const attente = available.length ? `— en attente : **${available.map(r => r.toUpperCase()).join(', ')}**` : '— terminé !';
       return `${isChapterDone(ch) ? '✅' : '🔄'} **Ch.${n}** ${attente}`;
