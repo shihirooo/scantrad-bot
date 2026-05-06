@@ -66,7 +66,7 @@ async function deleteProject(name) {
   await Project.deleteOne({ name });
 }
 
-const ROLES_ORDER = ['raws', 'trad', 'clean', 'check', 'edit', 'qcheck'];
+const ROLES_ORDER = ['raws', 'clean', 'trad', 'check', 'edit', 'qcheck'];
 
 function getAvailableTodos(chapter) {
   const done = r => chapter[r] === true;
