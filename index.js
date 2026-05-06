@@ -125,7 +125,7 @@ client.on('messageCreate', async (message) => {
         { name: '⚙️ Setup', value: '`!projet "<nom>" <roles>` — Créer un projet (ex: `!projet "A Saint" raws,trad,clean,edit,qcheck`)\n`!lier <nom>` — Lier ce salon à un projet\n`!delier` — Délier ce salon du projet\n`!ajoutrole <role>` — Ajouter un rôle au projet\n`!supprole <role>` — Supprimer un rôle du projet\n`!projets` — Lister tous les projets\n`!suppprojet <nom>` — Supprimer un projet' },
         { name: '📺 Saisons', value: '`!ajoutsaison <nom> <debut>-<fin>` — Créer une saison (ex: `!ajoutsaison S1 1-54`)\n`!ajoutsaison <nom> <debut>` — Saison sans fin connue (ex: `!ajoutsaison S4 128`)\n`!saisons` — Voir toutes les saisons\n`!chapitres <saison>` — Chapitres d\'une saison (ex: `!chapitres S4`)' },
         { name: '📌 Chapitres', value: '`Chapitre <n> : <role>` — Marquer terminé (ex: `Chapitre 145 : raws, trad`)\n`Chapitre <n>-<n> : <role>` — Plusieurs chapitres (ex: `Chapitre 145-146-147 : raws`)\n`!fait <n> <role>` — Marquer un rôle terminé\n`!majo <debut>-<fin> <role>` — Marquer en masse (ex: `!majo 1-140 raws`)\n`!chapitres` — Les 5 prochains chapitres en cours\n`!chapitre <n>` — Détail d\'un chapitre\n`!suppchap <n>` — Supprimer un chapitre' },
-        { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales du projet\n`!mestaches` — Vos tâches assignées\n`!monprojet` — Vos rôles sur ce projet\n`!assigner <role> @user` — Assigner un rôle\n`!desassigner <role>` — Retirer une assignation\n`!equipe` — Voir l\'équipe du projet' },
+        { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales du projet\n`!mestaches` — Vos tâches assignées\n`!mesprojets` — Voir tous vos projets et rôles\n`!assigner <role> @user` — Assigner un rôle\n`!desassigner <role>` — Retirer une assignation\n`!equipe` — Voir l\'équipe du projet' },
         { name: '❓ Aide', value: '`!aide` — Afficher cette aide' }
       )
       .setFooter({ text: 'Cookie Voie Lactée ✨' });
@@ -139,9 +139,13 @@ client.on('messageCreate', async (message) => {
     if (!names.length) return message.reply('Aucun projet créé pour l\'instant.');
     const list = names.map(n => {
       const p = data[n];
-      const total = Object.keys(p.chapters || {}).length;
-      const done = Object.values(p.chapters || {}).filter(c => isChapterDone(c)).length;
-      return `• **${n}** — ${done}/${total} chapitres terminés`;
+      const chapEntries = Object.entries(p.chapters || {});
+      const doneNums = new Set(chapEntries.filter(([, c]) => isChapterDone(c)).map(([n]) => n.replace(/[a-zA-Z]+$/, '')));
+      const done = doneNums.size;
+      const saisons = p.saisons || {};
+      const lastSaison = Object.values(saisons).sort((a, b) => b.debut - a.debut)[0];
+      const total = lastSaison?.fin ?? null;
+      return `• **${n}** — ${total ? `${done}/${total}` : `${done}`} chapitres terminés`;
     }).join('\n');
     const embed = new EmbedBuilder()
       .setTitle('📚 Projets en cours')
@@ -630,18 +634,23 @@ client.on('messageCreate', async (message) => {
     return message.reply({ embeds: [embed] });
   }
 
-  // ─── !monprojet ──────────────────────────────────────────
-  if (lower === '!monprojet') {
+  // ─── !mesprojets ─────────────────────────────────────────
+  if (lower === '!mesprojets') {
     const data = await loadData();
-    const projectName = findProjectByChannel(data, message.channelId);
-    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
-    const project = data[projectName];
     const userId = message.author.id;
-    const roles = project.assignments[userId] || [];
-    if (!roles.length) return message.reply(`Tu n\'es assigné(e) à aucun rôle sur **${projectName}**.`);
-    return message.reply(`Sur **${projectName}**, tu es assigné(e) : ${roles.join(', ')}`);
+    const lines = [];
+    for (const [name, project] of Object.entries(data)) {
+      const userRoles = project.assignments[userId] || [];
+      if (!userRoles.length) continue;
+      lines.push(`**${name}** : ${userRoles.join(', ')}`);
+    }
+    if (!lines.length) return message.reply('Tu n\'es assigné(e) à aucun projet.');
+    const embed = new EmbedBuilder()
+      .setTitle(`🗂️ Mes projets`)
+      .setDescription(lines.join('\n'))
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
   }
-});
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
