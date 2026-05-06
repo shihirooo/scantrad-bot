@@ -369,7 +369,12 @@ client.on('messageCreate', async (message) => {
       .find(s => s.fin === null || s.debut <= dernierTermine + 1);
     const total = saisonEnCours?.fin ?? null;
     const roleLines = ROLES_ORDER.filter(r => project.roles.includes(r)).map(r => {
-      const count = chapters.filter(([, c]) => c[r] === true).length;
+      const doneForRole = new Set(
+        chapters
+          .filter(([, c]) => c[r] === true)
+          .map(([n]) => n.replace(/[a-zA-Z]+$/, ''))
+      );
+      const count = doneForRole.size;
       return `**${r.toUpperCase()}** : ${count}${total ? `/${total}` : ''}`;
     }).join('\n');
     const embed = new EmbedBuilder()
