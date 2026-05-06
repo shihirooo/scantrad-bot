@@ -360,8 +360,9 @@ client.on('messageCreate', async (message) => {
     const saisons = project.saisons || {};
     const dernierTermine = Math.max(...chapters.filter(([, c]) => isChapterDone(c)).map(([n]) => parseFloat(n)));
     const saisonEnCours = Object.values(saisons)
-      .filter(s => s.debut <= dernierTermine)
-      .sort((a, b) => b.debut - a.debut)[0];
+      .filter(s => s.fin === null || s.fin >= dernierTermine)
+      .sort((a, b) => a.debut - b.debut)[0] 
+      || Object.values(saisons).sort((a, b) => b.debut - a.debut)[0];
     const total = saisonEnCours?.fin ?? null;
     const roleLines = project.roles.map(r => {
       const count = chapters.filter(([, c]) => c[r] === true).length;
@@ -499,7 +500,11 @@ client.on('messageCreate', async (message) => {
     const saisons = data[projectName].saisons || {};
     if (!Object.keys(saisons).length) return message.reply('Aucune saison enregistrée. Utilise `!ajoutsaison S1 1-54`');
     const lines = Object.entries(saisons).map(([nom, s]) => `**${nom}** : Ch.${s.debut} ~ Ch.${s.fin ?? '?'}`).join('\n');
-    return message.reply(`📺 Saisons de **${projectName}** :\n${lines}`);
+    const embed = new EmbedBuilder()
+      .setTitle(`📺 Saisons de **${projectName}**`)
+      .setDescription(lines)
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
   }
 
   // ─── !chapitres <saison> ─────────────────────────────────
