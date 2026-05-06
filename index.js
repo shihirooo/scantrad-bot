@@ -356,7 +356,12 @@ client.on('messageCreate', async (message) => {
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
     const chapters = Object.entries(project.chapters);
-    const done = chapters.filter(([, c]) => isChapterDone(c)).length;
+    const doneNums = new Set(
+      chapters
+        .filter(([, c]) => isChapterDone(c))
+        .map(([n]) => n.replace(/[a-zA-Z]+$/, ''))
+    );
+    const done = doneNums.size;
     const saisons = project.saisons || {};
     const dernierTermine = Math.max(...chapters.filter(([, c]) => isChapterDone(c)).map(([n]) => parseFloat(n)));
     const saisonEnCours = Object.values(saisons)
