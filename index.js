@@ -620,12 +620,12 @@ client.on('messageCreate', async (message) => {
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
     const assignments = project.assignments || {};
-    const lines = project.roles.map(r => {
+    const lines = ROLES_ORDER.filter(r => project.roles.includes(r)).map(r => {
       const membres = Object.entries(assignments)
         .filter(([, roles]) => roles.includes(r))
         .map(([userId]) => `<@${userId}>`)
         .join(', ');
-      return `**${r.toUpperCase()}** : ${membres || 'non assigné'}`;
+      return `\`${r.toUpperCase()}\` ${membres || '*non assigné*'}`;
     }).join('\n');
     const embed = new EmbedBuilder()
       .setTitle(`👥 Équipe — ${projectName}`)
