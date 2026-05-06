@@ -74,8 +74,8 @@ function getAvailableTodos(chapter) {
   const pending = r => chapter[r] === false;
   const available = [];
   if (exists('raws') && pending('raws')) available.push('raws');
-  if (exists('trad') && pending('trad')) available.push('trad');
   if (exists('clean') && pending('clean') && done('raws')) available.push('clean');
+  if (exists('trad') && pending('trad')) available.push('trad');
   if (exists('check') && pending('check') && done('trad')) available.push('check');
   if (exists('edit') && pending('edit') && done('trad') && done('clean')) available.push('edit');
   if (exists('qcheck') && pending('qcheck') && done('edit')) available.push('qcheck');
