@@ -148,9 +148,9 @@ client.on('messageCreate', async (message) => {
 
   // ─── !projet <nom> <roles> ───────────────────────────────
   if (lower.startsWith('!projet ')) {
-    const parts = content.slice(8).trim().split(' ');
-    const name = parts[0];
-    const rolesRaw = parts[1] || 'raws,trad,clean,edit,qcheck';
+   const projetMatch = content.slice(8).trim().match(/^"([^"]+)"\s+(\S+)|^(\S+)\s+(\S+)|^"([^"]+)"|^(\S+)/);
+    const name = projetMatch[1] || projetMatch[3] || projetMatch[5] || projetMatch[6];
+    const rolesRaw = projetMatch[2] || projetMatch[4] || 'raws,trad,clean,edit,qcheck';
     const roles = rolesRaw.split(',').map(r => r.trim().toLowerCase());
     const data = await loadData();
     if (data[name]) return message.reply(`Le projet **${name}** existe déjà.`);
