@@ -125,7 +125,7 @@ client.on('messageCreate', async (message) => {
         { name: '⚙️ Setup', value: '`!projet "<nom>" <roles>` — Créer un projet (ex: `!projet "A Saint" raws,trad,clean,edit,qcheck`)\n`!lier <nom>` — Lier ce salon à un projet\n`!delier` — Délier ce salon du projet\n`!ajoutrole <role>` — Ajouter un rôle au projet\n`!supprole <role>` — Supprimer un rôle du projet\n`!projets` — Lister tous les projets\n`!suppprojet <nom>` — Supprimer un projet' },
         { name: '📺 Saisons', value: '`!ajoutsaison <nom> <debut>-<fin>` — Créer une saison (ex: `!ajoutsaison S1 1-54`)\n`!ajoutsaison <nom> <debut>` — Saison sans fin connue (ex: `!ajoutsaison S4 128`)\n`!saisons` — Voir toutes les saisons\n`!chapitres <saison>` — Chapitres d\'une saison (ex: `!chapitres S4`)' },
         { name: '📌 Chapitres', value: '`Chapitre <n> : <role>` — Marquer terminé (ex: `Chapitre 145 : raws, trad`)\n`Chapitre <n>-<n> : <role>` — Plusieurs chapitres (ex: `Chapitre 145-146-147 : raws`)\n`!fait <n> <role>` — Marquer un rôle terminé\n`!majo <debut>-<fin> <role>` — Marquer en masse (ex: `!majo 1-140 raws`)\n`!chapitres` — Les 5 prochains chapitres en cours\n`!chapitre <n>` — Détail d\'un chapitre\n`!suppchap <n>` — Supprimer un chapitre' },
-        { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales du projet\n`!mestaches` — Vos tâches assignées\n`!mesprojets` — Voir tous vos projets et rôles\n`!assigner <role> @user` — Assigner un rôle\n`!desassigner <role>` — Retirer une assignation\n`!equipe` — Voir l\'équipe du projet' },
+        { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales du projet\n`!mestaches` — Vos tâches assignées\n`!tache @user` — Voir les tâches d\'un membre\n`!mesprojets` — Voir tous vos projets et rôles\n`!assigner <role> @user` — Assigner un rôle\n`!desassigner <role>` — Retirer une assignation\n`!equipe` — Voir l\'équipe du projet' },
         { name: '❓ Aide', value: '`!aide` — Afficher cette aide' }
       )
       .setFooter({ text: 'Cookie Voie Lactée ✨' });
@@ -232,8 +232,36 @@ client.on('messageCreate', async (message) => {
     return message.reply(reply);
   }
 
+// ─── Format raccourci : role numéro ──────────────────────
+  const shortMatch = content.match(/^(raws|clean|trad|check|edit|qcheck|qch|q-check)\s+([\d]+(?:[.,]\d+)?[a-zA-Z]?(?:(?:[,+à]|a\s)[\d]+(?:[.,]\d+)?[a-zA-Z]?)*)\s*$/i);
+  if (shortMatch) {
+    let role = shortMatch[1].toLowerCase().replace(/-/g, '');
+    if (role === 'qch') role = 'qcheck';
+    const chNums = shortMatch[2].split(/[,+]/).map(s => s.trim()).filter(Boolean);
+    const data = await loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet. Utilise `!lier <nom>`.');
+    const project = data[projectName];
+    if (!project.roles.includes(role)) return message.reply(`Rôle **${role}** inconnu dans ce projet.`);
+    for (const chNum of chNums) {
+      if (!project.chapters[chNum]) {
+        project.chapters[chNum] = {};
+        project.roles.forEach(r => project.chapters[chNum][r] = false);
+      }
+      if (project.chapters[chNum][role] !== undefined) project.chapters[chNum][role] = true;
+    }
+    await saveProject(projectName, project);
+    const chList = chNums.join(', ');
+    const lastCh = project.chapters[chNums[chNums.length - 1]];
+    const available = getAvailableTodos(lastCh);
+    const reply = available.length
+      ? `✅ **Ch.${chList} — ${role}** marqué(s) terminé(s) !\nEn attente : **${available.map(r => r.toUpperCase()).join(', ')}**`
+      : `🎉 **Ch.${chList}** entièrement terminé(s) !`;
+    return message.reply(reply);
+  }
+
   // ─── Détecter "Chapitre N : role" (format naturel) ───────
-  const naturalMatch = content.match(/^chapitre\s+([\d]+(?:[.,]\d+)?[a-zA-Z]?(?:(?:[-,]|à|a)[\d]+(?:[.,]\d+)?[a-zA-Z]?)*)\s*[:,]?\s*(.+)$/i);
+  const naturalMatch = content.match(/^chapitre\s+([\d]+(?:[.,]\d+)?[a-zA-Z]?(?:(?:,|à|a)[\d]+(?:[.,]\d+)?[a-zA-Z]?)*)\s*(?:[:,]|-\s*(?=[a-zA-Z]))\s*(.+)$/i);
   if (naturalMatch) {
     const rangeMatch = naturalMatch[1].match(/^(\d+)\s*(?:à|a)\s*(\d+)$/i);
     const isDecimal = naturalMatch[1].includes('.');
@@ -545,6 +573,50 @@ client.on('messageCreate', async (message) => {
     project.saisons[nom] = { debut: Number(match[1]), fin: match[2] ? Number(match[2]) : null };
     await saveProject(projectName, project);
     return message.reply(`✅ Saison **${nom}** enregistrée : chapitres ${match[1]} à ${match[2] ?? '?'}.`);
+  }
+
+// ─── !tache @user ────────────────────────────────────────
+  if (lower.startsWith('!tache ')) {
+    const userId = message.mentions.users.first()?.id;
+    if (!userId) return message.reply('Usage : `!tache @user`');
+    const data = await loadData();
+    const lines = [];
+    for (const [name, project] of Object.entries(data)) {
+      const userRoles = project.assignments[userId] || [];
+      if (!userRoles.length) continue;
+      const pending = Object.entries(project.chapters)
+        .filter(([, ch]) => userRoles.some(r => ch[r] === false))
+        .sort(([a], [b]) => parseFloat(a) - parseFloat(b));
+      const notStarted = [];
+      for (const [, saison] of Object.entries(project.saisons || {})) {
+        const fin = saison.fin ?? Math.max(...Object.keys(project.chapters).map(n => parseInt(n)).filter(n => !isNaN(n)));
+        for (let i = saison.debut; i <= fin; i++) {
+          const n = String(i);
+          if (!project.chapters[n] && userRoles.some(r => ['raws', 'trad'].includes(r))) {
+            notStarted.push(n);
+          }
+        }
+      }
+      if (pending.length || notStarted.length) {
+        lines.push(`**${name}** :`);
+        pending.forEach(([n, ch]) => {
+          const todo = userRoles.filter(r => ch[r] === false).map(r => r.toUpperCase()).join(', ');
+          lines.push(`  • Ch.${n} — ${todo}`);
+        });
+        if (notStarted.length) {
+          const first = notStarted[0];
+          const last = notStarted[notStarted.length - 1];
+          const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
+          lines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
+        }
+      }
+    }
+    if (!lines.length) return message.reply(`✅ <@${userId}> n'a aucune tâche en attente !`);
+    const embed = new EmbedBuilder()
+      .setTitle(`📋 Tâches de <@${userId}>`)
+      .setDescription(lines.join('\n'))
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
   }
 
   // ─── !saisons ────────────────────────────────────────────
