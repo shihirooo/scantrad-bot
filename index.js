@@ -338,7 +338,12 @@ client.on('messageCreate', async (message) => {
     const project = data[projectName];
     const ch = project.chapters[chNum];
     if (!ch) return message.reply(`Ch.${chNum} non trouvé. Utilise \`Chapitre ${chNum} : raws\` pour commencer.`);
-    const lines = project.roles.map(r => `${ch[r] ? '✅' : '🔄'} ${r}`).join('\n');
+    const available = getAvailableTodos(ch);
+    const lines = project.roles.map(r => {
+      if (ch[r] === true) return `✅ ${r}`;
+      if (available.includes(r)) return `🔄 ${r}`;
+      return `⬜ ${r}`;
+    }).join('\n');
     const embed = new EmbedBuilder()
       .setTitle(`📖 ${projectName} — Chapitre ${chNum}`)
       .setDescription(lines)
@@ -499,7 +504,9 @@ client.on('messageCreate', async (message) => {
         lines.push(`**${name}** :`);
         const grouped = [];
         pending.forEach(([n, ch]) => {
-          const todo = userRoles.filter(r => ch[r] === false).map(r => r.toUpperCase()).join(', ');
+          const available = getAvailableTodos(ch);
+          const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
+          if (!todo) return;
           const last = grouped[grouped.length - 1];
           if (last && last.todo === todo && parseFloat(n) === parseFloat(last.end) + 1) {
             last.end = n;
@@ -610,7 +617,9 @@ client.on('messageCreate', async (message) => {
         lines.push(`**${name}** :`);
         const grouped = [];
         pending.forEach(([n, ch]) => {
-          const todo = userRoles.filter(r => ch[r] === false).map(r => r.toUpperCase()).join(', ');
+          const available = getAvailableTodos(ch);
+          const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
+          if (!todo) return;
           const last = grouped[grouped.length - 1];
           if (last && last.todo === todo && parseFloat(n) === parseFloat(last.end) + 1) {
             last.end = n;
