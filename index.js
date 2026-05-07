@@ -489,7 +489,12 @@ client.on('messageCreate', async (message) => {
       if (!userRoles.length) continue;
       const pending = Object.entries(project.chapters)
         .filter(([, ch]) => userRoles.some(r => ch[r] === false))
-        .sort(([a], [b]) => parseFloat(a) - parseFloat(b));
+        .sort(([a], [b]) => {
+          const numA = parseFloat(a);
+          const numB = parseFloat(b);
+          if (numA !== numB) return numA - numB;
+          return a.localeCompare(b);
+        });
       const notStarted = [];
       for (const [, saison] of Object.entries(project.saisons || {})) {
         const fin = saison.fin ?? Math.max(...Object.keys(project.chapters).map(n => parseInt(n)).filter(n => !isNaN(n)));
