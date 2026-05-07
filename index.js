@@ -37,7 +37,7 @@ async function loadData() {
         [...(p.saisons || new Map())].map(([k, v]) => [k, { debut: v.debut, fin: v.fin }])
       ),
       chapters: Object.fromEntries(
-        [...(p.chapters || new Map())].map(([k, v]) => [k, Object.fromEntries(v)])
+        [...(p.chapters || new Map())].map(([k, v]) => [k.replace(/·/g, '.'), Object.fromEntries(v)])
       ),
     };
   }
@@ -55,7 +55,7 @@ async function saveProject(name, project) {
       assignments: project.assignments || {},
       saisons: project.saisons || {},
       chapters: Object.fromEntries(
-        Object.entries(project.chapters || {}).map(([k, v]) => [k, v])
+        Object.entries(project.chapters || {}).map(([k, v]) => [k.replace(/\./g, '·'), v])
       ),
     },
     { upsert: true, new: true }
