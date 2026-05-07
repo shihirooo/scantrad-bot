@@ -140,7 +140,7 @@ client.on('messageCreate', async (message) => {
     const list = names.map(n => {
       const p = data[n];
       const chapEntries = Object.entries(p.chapters || {});
-      const doneNums = new Set(chapEntries.filter(([, c]) => isChapterDone(c)).map(([n]) => n.replace(/[a-zA-Z]+$/, '')));
+      const doneNums = new Set(chapEntries.filter(([, c]) => isChapterDone(c)).map(([n]) => n.replace(/[.,]\d+[a-zA-Z]*$/, '').replace(/[a-zA-Z]+$/, ''))
       const done = doneNums.size;
       const saisons = p.saisons || {};
       const lastSaison = Object.values(saisons).sort((a, b) => b.debut - a.debut)[0];
@@ -195,8 +195,43 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ Ce salon a été délié du projet **${projectName}**.`);
   }
 
+// ─── Format alternatif : > Chapitre X, Y\n> Role (Fait) ─
+  const altMatch = content.match(/chapitre\s+([\d,\s]+)/i);
+  const faitLines = content.match(/>\s*([a-zA-Z]+)\s*\(fait\)/gi);
+  if (altMatch && faitLines) {
+    const chNums = altMatch[1].split(',').map(s => s.trim()).filter(Boolean);
+    const data = await loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return;
+    const project = data[projectName];
+    const roles = faitLines
+      .map(l => l.match(/>\s*([a-zA-Z]+)\s*\(fait\)/i)?.[1]?.toLowerCase())
+      .filter(r => r && project.roles.includes(r));
+    if (!chNums.length || !roles.length) return;
+    for (const chNum of chNums) {
+      if (!project.chapters[chNum]) {
+        project.chapters[chNum] = {};
+        project.roles.forEach(r => project.chapters[chNum][r] = false);
+      }
+      for (const role of roles) {
+        if (project.chapters[chNum][role] === undefined) continue;
+        project.chapters[chNum][role] = true;
+        if (isChapterDone(project.chapters[chNum])) project.chapters[chNum].done = true;
+      }
+    }
+    await saveProject(projectName, project);
+    const chList = chNums.join(', ');
+    const roleList = roles.join(', ');
+    const lastCh = project.chapters[chNums[chNums.length - 1]];
+    const available = getAvailableTodos(lastCh);
+    const reply = available.length
+      ? `✅ **Ch.${chList} — ${roleList}** marqué(s) terminé(s) !\nEn attente : **${available.map(r => r.toUpperCase()).join(', ')}**`
+      : `🎉 **Ch.${chList}** entièrement terminé(s) !`;
+    return message.reply(reply);
+  }
+
   // ─── Détecter "Chapitre N : role" (format naturel) ───────
-  const naturalMatch = content.match(/^chapitre\s+([\d]+[a-zA-Z]?(?:(?:-|à|a)[\d]+[a-zA-Z]?)*)\s*:\s*(.+)$/i);
+  const naturalMatch = content.match(/^chapitre\s+([\d]+(?:[.,]\d+)?[a-zA-Z]?(?:(?:-|à|a)[\d]+(?:[.,]\d+)?[a-zA-Z]?)*)\s*:\s*(.+)$/i);
   if (naturalMatch) {
     const rangeMatch = naturalMatch[1].match(/^(\d+)\s*(?:à|a)\s*(\d+)$/i);
     let chNums;
@@ -206,7 +241,7 @@ client.on('messageCreate', async (message) => {
         chNums.push(String(i));
       }
     } else {
-      chNums = naturalMatch[1].split('-').map(s => s.trim());
+      chNums = naturalMatch[1].split(/[-,]/).map(s => s.trim()).filter(Boolean);
     }
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
@@ -363,7 +398,7 @@ client.on('messageCreate', async (message) => {
     const doneNums = new Set(
       chapters
         .filter(([, c]) => isChapterDone(c))
-        .map(([n]) => n.replace(/[a-zA-Z]+$/, ''))
+        .map(([n]) => n.replace(/[.,]\d+[a-zA-Z]*$/, '').replace(/[a-zA-Z]+$/, ''))
     );
     const done = doneNums.size;
     const saisons = project.saisons || {};
@@ -376,7 +411,7 @@ client.on('messageCreate', async (message) => {
       const doneForRole = new Set(
         chapters
           .filter(([, c]) => c[r] === true)
-          .map(([n]) => n.replace(/[a-zA-Z]+$/, ''))
+          .map(([n]) => n.replace(/[.,]\d+[a-zA-Z]*$/, '').replace(/[a-zA-Z]+$/, ''))
       );
       const count = doneForRole.size;
       return `**${r.toUpperCase()}** : ${count}${total ? `/${total}` : ''}`;
