@@ -197,8 +197,9 @@ client.on('messageCreate', async (message) => {
 
 // ─── Format alternatif : > Chapitre X, Y\n> Role (Fait) ─
   const altMatch = content.match(/chapitre\s+([\d,\s]+)/i);
+  const isAltFormat = altMatch && faitLines && content.includes('(Fait)');
   const faitLines = content.match(/>\s*([a-zA-Z]+)\s*\(fait\)/gi);
-  if (altMatch && faitLines) {
+  if (isAltFormat) {
     const chNums = altMatch[1].split(',').map(s => s.trim()).filter(Boolean);
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
