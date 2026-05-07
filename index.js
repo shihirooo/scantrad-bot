@@ -509,8 +509,7 @@ client.on('messageCreate', async (message) => {
           if (!todo) return;
           const last = grouped[grouped.length - 1];
           const nextNum = Number(last?.end) + 1;
-          const nextExists = project.chapters[String(nextNum)] !== undefined;
-          if (last && last.todo === todo && !n.match(/[a-zA-Z]/) && !last.end?.match(/[a-zA-Z]/) && Number(n) === nextNum && nextExists) {
+          if (last && last.todo === todo && !n.match(/[a-zA-Z]/) && !last.end?.match(/[a-zA-Z]/) && Number(n) === nextNum) {
             last.end = n;
           } else {
             grouped.push({ start: n, end: n, todo });
@@ -624,8 +623,7 @@ client.on('messageCreate', async (message) => {
           if (!todo) return;
           const last = grouped[grouped.length - 1];
           const nextNum = Number(last?.end) + 1;
-          const nextExists = project.chapters[String(nextNum)] !== undefined;
-          if (last && last.todo === todo && !n.match(/[a-zA-Z]/) && !last.end?.match(/[a-zA-Z]/) && Number(n) === nextNum && nextExists) {
+          if (last && last.todo === todo && !n.match(/[a-zA-Z]/) && !last.end?.match(/[a-zA-Z]/) && Number(n) === nextNum) {
             last.end = n;
           } else {
             grouped.push({ start: n, end: n, todo });
