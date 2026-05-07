@@ -411,8 +411,8 @@ client.on('messageCreate', async (message) => {
     const saisons = project.saisons || {};
     const dernierTermine = Math.max(...chapters.filter(([, c]) => isChapterDone(c)).map(([n]) => parseFloat(n)));
     const saisonEnCours = Object.values(saisons)
-      .sort((a, b) => b.debut - a.debut)
-      .find(s => s.fin === null || s.debut <= dernierTermine + 1);
+      .sort((a, b) => b.fin - a.fin)
+      .find(s => s.fin !== null);
     const total = saisonEnCours?.fin ?? null;
     const roleLines = ROLES_ORDER.filter(r => project.roles.includes(r)).map(r => {
       const doneForRole = new Set(
