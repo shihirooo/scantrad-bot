@@ -497,9 +497,18 @@ client.on('messageCreate', async (message) => {
       }
       if (pending.length || notStarted.length) {
         lines.push(`**${name}** :`);
+        const grouped = [];
         pending.forEach(([n, ch]) => {
           const todo = userRoles.filter(r => ch[r] === false).map(r => r.toUpperCase()).join(', ');
-          lines.push(`  • Ch.${n} — ${todo}`);
+          const last = grouped[grouped.length - 1];
+          if (last && last.todo === todo && parseFloat(n) === parseFloat(last.end) + 1) {
+            last.end = n;
+          } else {
+            grouped.push({ start: n, end: n, todo });
+          }
+        });
+        grouped.forEach(({ start, end, todo }) => {
+          lines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
         });
         if (notStarted.length) {
           const first = notStarted[0];
@@ -599,9 +608,18 @@ client.on('messageCreate', async (message) => {
       }
       if (pending.length || notStarted.length) {
         lines.push(`**${name}** :`);
+        const grouped = [];
         pending.forEach(([n, ch]) => {
           const todo = userRoles.filter(r => ch[r] === false).map(r => r.toUpperCase()).join(', ');
-          lines.push(`  • Ch.${n} — ${todo}`);
+          const last = grouped[grouped.length - 1];
+          if (last && last.todo === todo && parseFloat(n) === parseFloat(last.end) + 1) {
+            last.end = n;
+          } else {
+            grouped.push({ start: n, end: n, todo });
+          }
+        });
+        grouped.forEach(({ start, end, todo }) => {
+          lines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
         });
         if (notStarted.length) {
           const first = notStarted[0];
