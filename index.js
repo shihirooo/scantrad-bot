@@ -595,8 +595,8 @@ client.on('messageCreate', async (message) => {
     }).join('\n');
     if (!lines) return message.reply(`Aucun chapitre pour la saison **${saisonNom}**.`);
     const embed = new EmbedBuilder()
-      .setTitle(`📺 ${projectName} — Saison ${saisonNom.replace(/^S/i, '')} (Ch.${saison.debut}~${saison.fin ?? '?'})`)
-      .setDescription(lines + (saison.fin ? `\n\n🏁 **Fin de la saison ${saisonNom.replace(/^S/i, '')}**` : ''))
+      .setTitle(`📺 ${projectName} — ${saisonNom.toUpperCase() === 'SS' ? 'Side Story' : `Saison ${saisonNom.replace(/^S/i, '')}`} (Ch.${saison.debut}~${saison.fin ?? '?'})`)
+      .setDescription(lines + (saison.fin ? `\n\n🏁 **${saisonNom.toUpperCase() === 'SS' ? 'Fin des Side Story' : `Fin de la saison ${saisonNom.replace(/^S/i, '')}`}**` : ''))
       .setColor(0xc9a4ff);
     return message.reply({ embeds: [embed] });
   }
