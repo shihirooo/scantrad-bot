@@ -516,9 +516,13 @@ client.on('messageCreate', async (message) => {
           const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
           if (!todo) return;
           const last = grouped[grouped.length - 1];
-          const prevInList = pending[pending.indexOf(pending.find(([k]) => k === n)) - 1];
-          const prevKey = prevInList?.[0];
-          if (last && last.todo === todo && !n.match(/[a-zA-Z]/) && !last.end?.match(/[a-zA-Z]/) && prevKey === last.end && Number(n) === Number(last.end) + 1) {
+          const hasLetter = n.match(/[a-zA-Z]/);
+          const lastHasLetter = last?.end?.match(/[a-zA-Z]/);
+          const isConsecutive = last && last.todo === todo
+            && !hasLetter
+            && !lastHasLetter
+            && Number(n) === Number(last.end) + 1;
+          if (isConsecutive) {
             last.end = n;
           } else {
             grouped.push({ start: n, end: n, todo });
