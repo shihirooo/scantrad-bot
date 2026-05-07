@@ -511,6 +511,7 @@ client.on('messageCreate', async (message) => {
       if (pending.length || notStarted.length) {
         lines.push(`**${name}** :`);
         const grouped = [];
+        console.log('pending Honey:', pending.map(([n]) => n));
         pending.forEach(([n, ch]) => {
           const available = getAvailableTodos(ch);
           const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
@@ -633,6 +634,7 @@ client.on('messageCreate', async (message) => {
       if (pending.length || notStarted.length) {
         lines.push(`**${name}** :`);
         const grouped = [];
+        console.log('pending Honey:', pending.map(([n]) => n));
         pending.forEach(([n, ch]) => {
           const available = getAvailableTodos(ch);
           const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
