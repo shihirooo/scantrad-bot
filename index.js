@@ -199,7 +199,7 @@ client.on('messageCreate', async (message) => {
   const faitLines = content.match(/>\s*([a-zA-Z]+)\s*\(fait\)/gi);
   const altMatch = faitLines && content.includes('(Fait)') ? content.match(/chapitre\s+([\d,\s]+)/i) : null;
   const isAltFormat = !!(altMatch && faitLines);
-  console.log('altMatch:', altMatch, 'faitLines:', faitLines, 'isAltFormat:', isAltFormat, 'naturalMatch:', naturalMatch);
+  console.log('altMatch:', altMatch, 'faitLines:', faitLines, 'isAltFormat:', isAltFormat);
   if (isAltFormat) {
     const chNums = altMatch[1].split(',').map(s => s.trim()).filter(Boolean);
     const data = await loadData();
