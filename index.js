@@ -263,6 +263,7 @@ client.on('messageCreate', async (message) => {
   // ─── Détecter "Chapitre N : role" (format naturel) ───────
   const naturalMatch = content.match(/^(?:chapitre|chap)\s+([\d]+(?:[.,]\d+)?[a-zA-Z]?(?:(?:[-,]|à|a)[\d]+(?:[.,]\d+)?[a-zA-Z]?)*)\s*(?:[:,]|-\s*(?=[a-zA-Z]))\s*(.+)$/i);
   if (naturalMatch) {
+    console.log('naturalMatch:', naturalMatch[1], naturalMatch[2]);
     const rangeMatch = naturalMatch[1].match(/^(\d+)\s*(?:à|a)\s*(\d+)$/i);
     const isDecimal = naturalMatch[1].includes('.');
     let chNums;
