@@ -140,7 +140,7 @@ client.on('messageCreate', async (message) => {
     const list = names.map(n => {
       const p = data[n];
       const chapEntries = Object.entries(p.chapters || {});
-      const doneNums = new Set(chapEntries.filter(([, c]) => isChapterDone(c)).map(([n]) => n.replace(/[.,]\d+[a-zA-Z]*$/, '').replace(/[a-zA-Z]+$/, ''))
+      const doneNums = new Set(chapEntries.filter(([, c]) => isChapterDone(c)).map(([n]) => n.replace(/[.,]\d+[a-zA-Z]*$/, '').replace(/[a-zA-Z]+$/, '')));
       const done = doneNums.size;
       const saisons = p.saisons || {};
       const lastSaison = Object.values(saisons).sort((a, b) => b.debut - a.debut)[0];
