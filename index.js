@@ -125,7 +125,7 @@ client.on('messageCreate', async (message) => {
         { name: '⚙️ Setup', value: '`!projet "<nom>" <roles>` — Créer un projet (ex: `!projet "A Saint" raws,trad,clean,edit,qcheck`)\n`!lier <nom>` — Lier ce salon à un projet\n`!delier` — Délier ce salon du projet\n`!ajoutrole <role>` — Ajouter un rôle au projet\n`!supprole <role>` — Supprimer un rôle du projet\n`!projets` — Lister tous les projets\n`!suppprojet <nom>` — Supprimer un projet' },
         { name: '📺 Saisons', value: '`!ajoutsaison <nom> <debut>-<fin>` — Créer une saison (ex: `!ajoutsaison S1 1-54`)\n`!ajoutsaison <nom> <debut>` — Saison sans fin connue (ex: `!ajoutsaison S4 128`)\n`!saisons` — Voir toutes les saisons\n`!chapitres <saison>` — Chapitres d\'une saison (ex: `!chapitres S4`)' },
         { name: '📌 Chapitres', value: '`Chapitre <n> : <role>` — Marquer terminé (ex: `Chapitre 145 : raws, trad`)\n`Chapitre <n>-<n> : <role>` — Plusieurs chapitres (ex: `Chapitre 145-146-147 : raws`)\n`!fait <n> <role>` — Marquer un rôle terminé\n`!majo <debut>-<fin> <role>` — Marquer en masse (ex: `!majo 1-140 raws`)\n`!chapitres` — Les 5 prochains chapitres en cours\n`!chapitre <n>` — Détail d\'un chapitre\n`!suppchap <n>` — Supprimer un chapitre' },
-        { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales du projet\n`!mestaches` — Vos tâches assignées\n`!tache @user` — Voir les tâches d\'un membre\n`!mesprojets` — Voir tous vos projets et rôles\n`!assigner <role> @user` — Assigner un rôle\n`!desassigner <role>` — Retirer une assignation\n`!equipe` — Voir l\'équipe du projet' },
+        { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales du projet\n`!mestaches` — Vos tâches assignées\n`!taches @user` — Voir les tâches d\'un membre\n`!mesprojets` — Voir tous vos projets et rôles\n`!assigner <role> @user` — Assigner un rôle\n`!desassigner <role>` — Retirer une assignation\n`!equipe` — Voir l\'équipe du projet' },
         { name: '❓ Aide', value: '`!aide` — Afficher cette aide' }
       )
       .setFooter({ text: 'Cookie Voie Lactée ✨' });
@@ -508,7 +508,9 @@ client.on('messageCreate', async (message) => {
           const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
           if (!todo) return;
           const last = grouped[grouped.length - 1];
-          if (last && last.todo === todo && parseFloat(n) === parseFloat(last.end) + 1) {
+          const nextNum = Number(last?.end) + 1;
+          const nextExists = project.chapters[String(nextNum)] !== undefined;
+          if (last && last.todo === todo && !n.match(/[a-zA-Z]/) && !last.end?.match(/[a-zA-Z]/) && Number(n) === nextNum && nextExists) {
             last.end = n;
           } else {
             grouped.push({ start: n, end: n, todo });
@@ -591,10 +593,10 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ Saison **${nom}** enregistrée : chapitres ${match[1]} à ${match[2] ?? '?'}.`);
   }
 
-// ─── !tache @user ────────────────────────────────────────
-  if (lower.startsWith('!tache ')) {
+// ─── !taches @user ────────────────────────────────────────
+  if (lower.startsWith('!taches ')) {
     const userId = message.mentions.users.first()?.id;
-    if (!userId) return message.reply('Usage : `!tache @user`');
+    if (!userId) return message.reply('Usage : `!taches @user`');
     const data = await loadData();
     const lines = [];
     for (const [name, project] of Object.entries(data)) {
@@ -621,7 +623,9 @@ client.on('messageCreate', async (message) => {
           const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
           if (!todo) return;
           const last = grouped[grouped.length - 1];
-          if (last && last.todo === todo && parseFloat(n) === parseFloat(last.end) + 1) {
+          const nextNum = Number(last?.end) + 1;
+          const nextExists = project.chapters[String(nextNum)] !== undefined;
+          if (last && last.todo === todo && !n.match(/[a-zA-Z]/) && !last.end?.match(/[a-zA-Z]/) && Number(n) === nextNum && nextExists) {
             last.end = n;
           } else {
             grouped.push({ start: n, end: n, todo });
