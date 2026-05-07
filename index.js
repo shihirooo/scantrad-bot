@@ -488,7 +488,10 @@ client.on('messageCreate', async (message) => {
       const userRoles = project.assignments[userId] || [];
       if (!userRoles.length) continue;
       const pending = Object.entries(project.chapters)
-        .filter(([, ch]) => userRoles.some(r => ch[r] === false))
+        .filter(([, ch]) => {
+          const available = getAvailableTodos(ch);
+          return userRoles.some(r => ch[r] === false && available.includes(r));
+        })
         .sort(([a], [b]) => {
           const numA = parseFloat(a);
           const numB = parseFloat(b);
@@ -513,8 +516,9 @@ client.on('messageCreate', async (message) => {
           const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
           if (!todo) return;
           const last = grouped[grouped.length - 1];
-          const nextNum = Number(last?.end) + 1;
-          if (last && last.todo === todo && !n.match(/[a-zA-Z]/) && !last.end?.match(/[a-zA-Z]/) && Number(n) === nextNum) {
+          const prevInList = pending[pending.indexOf(pending.find(([k]) => k === n)) - 1];
+          const prevKey = prevInList?.[0];
+          if (last && last.todo === todo && !n.match(/[a-zA-Z]/) && !last.end?.match(/[a-zA-Z]/) && prevKey === last.end && Number(n) === Number(last.end) + 1) {
             last.end = n;
           } else {
             grouped.push({ start: n, end: n, todo });
@@ -607,7 +611,10 @@ client.on('messageCreate', async (message) => {
       const userRoles = project.assignments[userId] || [];
       if (!userRoles.length) continue;
       const pending = Object.entries(project.chapters)
-        .filter(([, ch]) => userRoles.some(r => ch[r] === false))
+        .filter(([, ch]) => {
+          const available = getAvailableTodos(ch);
+          return userRoles.some(r => ch[r] === false && available.includes(r));
+        })
         .sort(([a], [b]) => parseFloat(a) - parseFloat(b));
       const notStarted = [];
       for (const [, saison] of Object.entries(project.saisons || {})) {
