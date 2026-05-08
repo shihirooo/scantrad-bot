@@ -620,7 +620,6 @@ client.on('messageCreate', async (message) => {
         targetLines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
       }
     }
-    const lines = [];
     if (urgentLines.length) {
       lines.push('🚨 **URGENT**');
       lines.push(...urgentLines);
@@ -698,7 +697,6 @@ client.on('messageCreate', async (message) => {
         targetLines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
       }
     }
-    const lines = [];
     if (urgentLines.length) {
       lines.push('🚨 **URGENT**');
       lines.push(...urgentLines);
