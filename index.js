@@ -129,6 +129,7 @@ client.on('messageCreate', async (message) => {
         { name: '📺 Saisons', value: '`!ajoutsaison <nom> <debut>-<fin>` — Créer une saison (ex: `!ajoutsaison S1 1-54`)\n`!ajoutsaison <nom> <debut>` — Saison sans fin connue (ex: `!ajoutsaison S4 128`)\n`!saisons` — Voir toutes les saisons\n`!chapitres <saison>` — Chapitres d\'une saison (ex: `!chapitres S4`)' },
         { name: '📌 Chapitres', value: '`Chapitre <n> : <role>` — Marquer terminé (ex: `Chapitre 145 : raws, trad`)\n`Chapitre <n>-<n> : <role>` — Plusieurs chapitres (ex: `Chapitre 145-146-147 : raws`)\n`!fait <n> <role>` — Marquer un rôle terminé\n`!majo <debut>-<fin> <role>` — Marquer en masse (ex: `!majo 1-140 raws`)\n`!chapitres` — Les 5 prochains chapitres en cours\n`!chapitre <n>` — Détail d\'un chapitre\n`!suppchap <n>` — Supprimer un chapitre' },
         { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales du projet\n`!mestaches` — Vos tâches assignées\n`!taches @user` — Voir les tâches d\'un membre\n`!mesprojets` — Voir tous vos projets et rôles\n`!assigner <role> @user` — Assigner un rôle\n`!desassigner <role>` — Retirer une assignation\n`!equipe` — Voir l\'équipe du projet' },
+        { name: '📅 Planning', value: '`!planning` — Voir le planning de la semaine\n`!setjour <jour>` — Définir le jour fixe d\'un projet (ex: `!setjour lundi`)\n`!suppjour` — Supprimer le jour fixe d\'un projet\n`!ajouterplanning <jour> <projet>` — Ajouter un projet au planning cette semaine\n`!retirerplanning <jour> <projet>` — Retirer un projet du planning cette semaine' },
         { name: '❓ Aide', value: '`!aide` — Afficher cette aide' }
       )
       .setFooter({ text: 'Cookie Voie Lactée ✨' });
@@ -855,6 +856,26 @@ client.on('messageCreate', async (message) => {
       { upsert: true }
     );
     return message.reply(`✅ **${projectName}** ajouté au planning du **${jour}** pour cette semaine !`);
+  }
+
+// ─── !retirerplanning <jour> <projet> ────────────────────
+  if (lower.startsWith('!retirerplanning ')) {
+    const parts = content.slice(17).trim().split(' ');
+    const jour = parts[0].toLowerCase();
+    const projectName = parts.slice(1).join(' ');
+    const planningSchema = mongoose.models.Planning || mongoose.model('Planning', new mongoose.Schema({
+      semaine: String,
+      entries: [{ jour: String, projectName: String }]
+    }));
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    const semaine = startOfWeek.toISOString().split('T')[0];
+    await planningSchema.findOneAndUpdate(
+      { semaine },
+      { $pull: { entries: { jour, projectName } } }
+    );
+    return message.reply(`✅ **${projectName}** retiré du planning du **${jour}** pour cette semaine !`);
   }
 
   // ─── !planning ───────────────────────────────────────────
