@@ -565,6 +565,8 @@ client.on('messageCreate', async (message) => {
     const data = await loadData();
     const userId = message.author.id;
     const lines = [];
+    const urgentLines = [];
+    const normalLines = [];
     for (const [name, project] of Object.entries(data)) {
       const userRoles = project.assignments[userId] || [];
       if (!userRoles.length) continue;
@@ -588,31 +590,46 @@ client.on('messageCreate', async (message) => {
           }
         }
       }
-      if (pending.length || notStarted.length) {
-        lines.push(`**${name}** :`);
-        const grouped = [];
-        pending.forEach(([n, ch]) => {
-          const available = getAvailableTodos(ch);
-          const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
-          if (!todo) return;
-          const last = grouped[grouped.length - 1];
-          const hasLetter = n.match(/[a-zA-Z]/);
-          const lastHasLetter = last?.end?.match(/[a-zA-Z]/);
-          const isConsecutive = last && last.todo === todo && !hasLetter && !lastHasLetter && Number(n) === Number(last.end) + 1;
-          if (isConsecutive) { last.end = n; } else { grouped.push({ start: n, end: n, todo }); }
-        });
-        grouped.forEach(({ start, end, todo }) => {
-          lines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
-        });
-        if (notStarted.length) {
-          const first = notStarted[0];
-          const last = notStarted[notStarted.length - 1];
-          const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
-          lines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
-        }
+      if (!pending.length && !notStarted.length) continue;
+      // Déterminer si urgent (chapPlanning cette semaine ou semaine prochaine)
+      const chapP = project.chapPlanning;
+      const isUrgent = chapP && (
+        pending.some(([n]) => Number(n) === chapP || Number(n) === chapP + 1) ||
+        notStarted.some(n => Number(n) === chapP || Number(n) === chapP + 1)
+      );
+      const targetLines = isUrgent ? urgentLines : normalLines;
+      targetLines.push(`**${name}** :`);
+      const grouped = [];
+      pending.forEach(([n, ch]) => {
+        const available = getAvailableTodos(ch);
+        const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
+        if (!todo) return;
+        const last = grouped[grouped.length - 1];
+        const hasLetter = n.match(/[a-zA-Z]/);
+        const lastHasLetter = last?.end?.match(/[a-zA-Z]/);
+        const isConsecutive = last && last.todo === todo && !hasLetter && !lastHasLetter && Number(n) === Number(last.end) + 1;
+        if (isConsecutive) { last.end = n; } else { grouped.push({ start: n, end: n, todo }); }
+      });
+      grouped.forEach(({ start, end, todo }) => {
+        targetLines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
+      });
+      if (notStarted.length) {
+        const first = notStarted[0];
+        const last = notStarted[notStarted.length - 1];
+        const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
+        targetLines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
       }
     }
-    if (!lines.length) return message.reply('✅ Tu n\'as aucune tâche en attente !');
+    const lines = [];
+    if (urgentLines.length) {
+      lines.push('🚨 **URGENT**');
+      lines.push(...urgentLines);
+      lines.push('');
+    }
+    if (normalLines.length) {
+      lines.push('📌 **Autres tâches**');
+      lines.push(...normalLines);
+    }
     const embed = new EmbedBuilder()
       .setTitle(`📋 Tâches de ${message.author.username}`)
       .setDescription(lines.join('\n'))
@@ -626,6 +643,8 @@ client.on('messageCreate', async (message) => {
     if (!userId) return message.reply('Usage : `!taches @user`');
     const data = await loadData();
     const lines = [];
+    const urgentLines = [];
+    const normalLines = [];
     for (const [name, project] of Object.entries(data)) {
       const userRoles = project.assignments[userId] || [];
       if (!userRoles.length) continue;
@@ -649,31 +668,46 @@ client.on('messageCreate', async (message) => {
           }
         }
       }
-      if (pending.length || notStarted.length) {
-        lines.push(`**${name}** :`);
-        const grouped = [];
-        pending.forEach(([n, ch]) => {
-          const available = getAvailableTodos(ch);
-          const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
-          if (!todo) return;
-          const last = grouped[grouped.length - 1];
-          const hasLetter = n.match(/[a-zA-Z]/);
-          const lastHasLetter = last?.end?.match(/[a-zA-Z]/);
-          const isConsecutive = last && last.todo === todo && !hasLetter && !lastHasLetter && Number(n) === Number(last.end) + 1;
-          if (isConsecutive) { last.end = n; } else { grouped.push({ start: n, end: n, todo }); }
-        });
-        grouped.forEach(({ start, end, todo }) => {
-          lines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
-        });
-        if (notStarted.length) {
-          const first = notStarted[0];
-          const last = notStarted[notStarted.length - 1];
-          const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
-          lines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
-        }
+      if (!pending.length && !notStarted.length) continue;
+      // Déterminer si urgent (chapPlanning cette semaine ou semaine prochaine)
+      const chapP = project.chapPlanning;
+      const isUrgent = chapP && (
+        pending.some(([n]) => Number(n) === chapP || Number(n) === chapP + 1) ||
+        notStarted.some(n => Number(n) === chapP || Number(n) === chapP + 1)
+      );
+      const targetLines = isUrgent ? urgentLines : normalLines;
+      targetLines.push(`**${name}** :`);
+      const grouped = [];
+      pending.forEach(([n, ch]) => {
+        const available = getAvailableTodos(ch);
+        const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
+        if (!todo) return;
+        const last = grouped[grouped.length - 1];
+        const hasLetter = n.match(/[a-zA-Z]/);
+        const lastHasLetter = last?.end?.match(/[a-zA-Z]/);
+        const isConsecutive = last && last.todo === todo && !hasLetter && !lastHasLetter && Number(n) === Number(last.end) + 1;
+        if (isConsecutive) { last.end = n; } else { grouped.push({ start: n, end: n, todo }); }
+      });
+      grouped.forEach(({ start, end, todo }) => {
+        targetLines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
+      });
+      if (notStarted.length) {
+        const first = notStarted[0];
+        const last = notStarted[notStarted.length - 1];
+        const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
+        targetLines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
       }
     }
-    if (!lines.length) return message.reply(`✅ <@${userId}> n'a aucune tâche en attente !`);
+    const lines = [];
+    if (urgentLines.length) {
+      lines.push('🚨 **URGENT**');
+      lines.push(...urgentLines);
+      lines.push('');
+    }
+    if (normalLines.length) {
+      lines.push('📌 **Autres tâches**');
+      lines.push(...normalLines);
+    }
     const embed = new EmbedBuilder()
       .setTitle(`📋 Tâches de <@${userId}>`)
       .setDescription(lines.join('\n'))
