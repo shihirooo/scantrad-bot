@@ -816,7 +816,6 @@ client.on('messageCreate', async (message) => {
       .setColor(0xc9a4ff);
     return message.reply({ embeds: [embed] });
   }
-  });
 
 // ─── !setjour <jour> ─────────────────────────────────────
   if (lower.startsWith('!setjour ')) {
@@ -927,6 +926,7 @@ client.on('messageCreate', async (message) => {
       .setColor(0xc9a4ff);
     return message.reply({ embeds: [embed] });
   }
+  });
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
