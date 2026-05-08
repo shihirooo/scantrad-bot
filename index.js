@@ -564,7 +564,6 @@ client.on('messageCreate', async (message) => {
   if (lower === '!mestaches') {
     const data = await loadData();
     const userId = message.author.id;
-    const lines = [];
     const urgentLines = [];
     const normalLines = [];
     for (const [name, project] of Object.entries(data)) {
@@ -629,16 +628,8 @@ client.on('messageCreate', async (message) => {
           normalLines.push(`  • Ch.${normalNotStarted[0]}~${normalNotStarted[normalNotStarted.length-1]} — ${todoRoles}`);
         }
       }
-      grouped.forEach(({ start, end, todo }) => {
-        targetLines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
-      });
-      if (notStarted.length) {
-        const first = notStarted[0];
-        const last = notStarted[notStarted.length - 1];
-        const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
-        targetLines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
-      }
     }
+    const lines = [];
     if (urgentLines.length) {
       lines.push('🚨 **URGENT**');
       lines.push(...urgentLines);
@@ -648,6 +639,7 @@ client.on('messageCreate', async (message) => {
       lines.push('📌 **Autres tâches**');
       lines.push(...normalLines);
     }
+    if (!urgentLines.length && !normalLines.length) return message.reply('✅ Tu n\'as aucune tâche en attente !');
     const embed = new EmbedBuilder()
       .setTitle(`📋 Tâches de ${message.author.username}`)
       .setDescription(lines.join('\n'))
@@ -660,7 +652,6 @@ client.on('messageCreate', async (message) => {
     const userId = message.mentions.users.first()?.id;
     if (!userId) return message.reply('Usage : `!taches @user`');
     const data = await loadData();
-    const lines = [];
     const urgentLines = [];
     const normalLines = [];
     for (const [name, project] of Object.entries(data)) {
@@ -725,16 +716,8 @@ client.on('messageCreate', async (message) => {
           normalLines.push(`  • Ch.${normalNotStarted[0]}~${normalNotStarted[normalNotStarted.length-1]} — ${todoRoles}`);
         }
       }
-      grouped.forEach(({ start, end, todo }) => {
-        targetLines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
-      });
-      if (notStarted.length) {
-        const first = notStarted[0];
-        const last = notStarted[notStarted.length - 1];
-        const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
-        targetLines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
-      }
     }
+    const lines = [];
     if (urgentLines.length) {
       lines.push('🚨 **URGENT**');
       lines.push(...urgentLines);
@@ -744,6 +727,7 @@ client.on('messageCreate', async (message) => {
       lines.push('📌 **Autres tâches**');
       lines.push(...normalLines);
     }
+    if (!urgentLines.length && !normalLines.length) return message.reply('✅ Tu n\'as aucune tâche en attente !');
     const embed = new EmbedBuilder()
       .setTitle(`📋 Tâches de <@${userId}>`)
       .setDescription(lines.join('\n'))
