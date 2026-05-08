@@ -321,7 +321,17 @@ client.on('messageCreate', async (message) => {
     const reply = available.length
       ? `✅ **Ch.${chList} — ${roleList}** marqué(s) terminé(s) !\nEn attente : **${available.map(r => r.toUpperCase()).join(', ')}**`
       : `🎉 **Ch.${chList}** entièrement terminé(s) !`;
-    return message.reply(reply);
+    // Pinger les responsables des prochains rôles
+    const pings = [];
+    for (const r of available) {
+      const responsables = Object.entries(project.assignments || {})
+        .filter(([, roles]) => roles.includes(r))
+        .map(([userId]) => `<@${userId}>`);
+      pings.push(...responsables);
+    }
+    const uniquePings = [...new Set(pings)];
+    const pingMsg = uniquePings.length ? `\n${uniquePings.join(' ')} à toi !` : '';
+    return message.reply(reply + pingMsg);
   }
 
   // ─── Format raccourci : role numéro ──────────────────────
@@ -349,7 +359,17 @@ client.on('messageCreate', async (message) => {
     const reply = available.length
       ? `✅ **Ch.${chList} — ${role}** marqué(s) terminé(s) !\nEn attente : **${available.map(r => r.toUpperCase()).join(', ')}**`
       : `🎉 **Ch.${chList}** entièrement terminé(s) !`;
-    return message.reply(reply);
+    // Pinger les responsables des prochains rôles
+    const pings = [];
+    for (const r of available) {
+      const responsables = Object.entries(project.assignments || {})
+        .filter(([, roles]) => roles.includes(r))
+        .map(([userId]) => `<@${userId}>`);
+      pings.push(...responsables);
+    }
+    const uniquePings = [...new Set(pings)];
+    const pingMsg = uniquePings.length ? `\n${uniquePings.join(' ')} à toi !` : '';
+    return message.reply(reply + pingMsg);
   }
 
   // ─── Détecter "Chapitre N : role" (format naturel) ───────
