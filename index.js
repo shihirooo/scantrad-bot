@@ -19,6 +19,7 @@ const projectSchema = new mongoose.Schema({
   assignments: { type: Map, of: [String] },
   saisons: { type: Map, of: { debut: Number, fin: Number } },
   chapters: { type: Map, of: Map },
+  jour: String,
 });
 
 const Project = mongoose.model('Project', projectSchema);
@@ -39,6 +40,7 @@ async function loadData() {
       chapters: Object.fromEntries(
         [...(p.chapters || new Map())].map(([k, v]) => [k.replace(/·/g, '.'), Object.fromEntries(v)])
       ),
+      jour: p.jour || null,
     };
   }
   return data;
@@ -57,6 +59,7 @@ async function saveProject(name, project) {
       chapters: Object.fromEntries(
         Object.entries(project.chapters || {}).map(([k, v]) => [k.replace(/\./g, '·'), v])
       ),
+      jour: project.jour || null,
     },
     { upsert: true, new: true }
   );
@@ -814,6 +817,116 @@ client.on('messageCreate', async (message) => {
     return message.reply({ embeds: [embed] });
   }
   });
+
+// ─── !setjour <jour> ─────────────────────────────────────
+  if (lower.startsWith('!setjour ')) {
+    const jour = content.slice(9).trim().toLowerCase();
+    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+    if (!jours.includes(jour)) return message.reply(`Jour invalide. Utilise : ${jours.join(', ')}`);
+    const data = await loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    project.jour = jour;
+    await saveProject(projectName, project);
+    return message.reply(`✅ Jour de sortie de **${projectName}** défini : **${jour}**`);
+  }
+
+  // ─── !ajouterplanning <jour> <projet> ────────────────────
+  if (lower.startsWith('!ajouterplanning ')) {
+    const parts = content.slice(17).trim().split(' ');
+    const jour = parts[0].toLowerCase();
+    const projectName = parts.slice(1).join(' ');
+    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+    if (!jours.includes(jour)) return message.reply(`Jour invalide. Utilise : ${jours.join(', ')}`);
+    const data = await loadData();
+    if (!data[projectName]) return message.reply(`Projet **${projectName}** introuvable.`);
+    // Stocker dans un planning temporaire (cette semaine)
+    const planningSchema = mongoose.models.Planning || mongoose.model('Planning', new mongoose.Schema({
+      semaine: String,
+      entries: [{ jour: String, projectName: String }]
+    }));
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay() + 1);
+    const semaine = startOfWeek.toISOString().split('T')[0];
+    await planningSchema.findOneAndUpdate(
+      { semaine },
+      { $push: { entries: { jour, projectName } } },
+      { upsert: true }
+    );
+    return message.reply(`✅ **${projectName}** ajouté au planning du **${jour}** pour cette semaine !`);
+  }
+
+  // ─── !planning ───────────────────────────────────────────
+  if (lower === '!planning') {
+    const data = await loadData();
+    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay() + 1);
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    const fmt = d => d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+    // Récupérer le planning temporaire de la semaine
+    const planningSchema = mongoose.models.Planning || mongoose.model('Planning', new mongoose.Schema({
+      semaine: String,
+      entries: [{ jour: String, projectName: String }]
+    }));
+    const semaine = startOfWeek.toISOString().split('T')[0];
+    const planningDoc = await planningSchema.findOne({ semaine });
+    const tempEntries = planningDoc?.entries || [];
+    // Construire le planning par jour
+    const planningByDay = {};
+    for (const jour of jours) planningByDay[jour] = [];
+    // Projets avec jour fixe
+    for (const [name, project] of Object.entries(data)) {
+      if (project.jour) planningByDay[project.jour].push(name);
+    }
+    // Projets ajoutés manuellement cette semaine
+    for (const { jour, projectName } of tempEntries) {
+      if (!planningByDay[jour].includes(projectName)) planningByDay[jour].push(projectName);
+    }
+    const lines = [];
+    for (const jour of jours) {
+      const projets = planningByDay[jour];
+      if (!projets.length) continue;
+      lines.push(`**${jour.charAt(0).toUpperCase() + jour.slice(1)}**`);
+      for (const name of projets) {
+        const project = data[name];
+        if (!project) continue;
+        // Trouver le premier chapitre en cours (ordre numérique)
+        const chapEntries = Object.entries(project.chapters)
+          .sort(([a], [b]) => {
+            const numA = parseFloat(a), numB = parseFloat(b);
+            if (numA !== numB) return numA - numB;
+            return a.localeCompare(b);
+          });
+        const firstPending = chapEntries.find(([, ch]) => !isChapterDone(ch));
+        if (!firstPending) {
+          lines.push(`✅ **${name}** — tout terminé !`);
+          continue;
+        }
+        const [chNum, ch] = firstPending;
+        const roleLines = ROLES_ORDER.filter(r => project.roles.includes(r) && ch[r] !== undefined).map(r => {
+          const isDone = ch[r] === true;
+          const responsables = Object.entries(project.assignments || {})
+            .filter(([, roles]) => roles.includes(r))
+            .map(([userId]) => `<@${userId}>`)
+            .join(', ');
+          return `${isDone ? '✅' : '❌'} ${r.toUpperCase()}${responsables ? ` — ${responsables}` : ''}`;
+        }).join('\n');
+        lines.push(`📖 **${name}** — Ch.${chNum}\n${roleLines}`);
+      }
+      lines.push('');
+    }
+    if (!lines.length) return message.reply('Aucun projet dans le planning cette semaine.');
+    const embed = new EmbedBuilder()
+      .setTitle(`📅 Planning du ${fmt(startOfWeek)} au ${fmt(endOfWeek)}`)
+      .setDescription(lines.join('\n'))
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
+  }
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
