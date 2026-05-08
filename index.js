@@ -593,23 +593,42 @@ client.on('messageCreate', async (message) => {
       if (!pending.length && !notStarted.length) continue;
       // Déterminer si urgent (chapPlanning cette semaine ou semaine prochaine)
       const chapP = project.chapPlanning;
-      const isUrgent = chapP && (
-        pending.some(([n]) => Number(n) === chapP || Number(n) === chapP + 1) ||
-        notStarted.some(n => Number(n) === chapP || Number(n) === chapP + 1)
-      );
-      const targetLines = isUrgent ? urgentLines : normalLines;
-      targetLines.push(`**${name}** :`);
-      const grouped = [];
-      pending.forEach(([n, ch]) => {
-        const available = getAvailableTodos(ch);
-        const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
-        if (!todo) return;
-        const last = grouped[grouped.length - 1];
-        const hasLetter = n.match(/[a-zA-Z]/);
-        const lastHasLetter = last?.end?.match(/[a-zA-Z]/);
-        const isConsecutive = last && last.todo === todo && !hasLetter && !lastHasLetter && Number(n) === Number(last.end) + 1;
-        if (isConsecutive) { last.end = n; } else { grouped.push({ start: n, end: n, todo }); }
-      });
+      const urgentChaps = new Set([chapP, chapP ? chapP + 1 : null].filter(Boolean).map(String));
+      const urgentPending = pending.filter(([n]) => urgentChaps.has(String(Math.floor(parseFloat(n)))));
+      const normalPending = pending.filter(([n]) => !urgentChaps.has(String(Math.floor(parseFloat(n)))));
+      const buildGroup = (items, targetLines, label) => {
+        if (!items.length) return;
+        targetLines.push(`**${label}** :`);
+        const grouped = [];
+        items.forEach(([n, ch]) => {
+          const available = getAvailableTodos(ch);
+          const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
+          if (!todo) return;
+          const last = grouped[grouped.length - 1];
+          const hasLetter = n.match(/[a-zA-Z]/);
+          const lastHasLetter = last?.end?.match(/[a-zA-Z]/);
+          const isConsecutive = last && last.todo === todo && !hasLetter && !lastHasLetter && Number(n) === Number(last.end) + 1;
+          if (isConsecutive) { last.end = n; } else { grouped.push({ start: n, end: n, todo }); }
+        });
+        grouped.forEach(({ start, end, todo }) => {
+          targetLines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
+        });
+      };
+      if (urgentPending.length) buildGroup(urgentPending, urgentLines, name);
+      if (normalPending.length) buildGroup(normalPending, normalLines, name);
+      if (notStarted.length) {
+        const urgentNotStarted = notStarted.filter(n => urgentChaps.has(n));
+        const normalNotStarted = notStarted.filter(n => !urgentChaps.has(n));
+        const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
+        if (urgentNotStarted.length) {
+          if (!urgentPending.length) urgentLines.push(`**${name}** :`);
+          urgentLines.push(`  • Ch.${urgentNotStarted[0]}~${urgentNotStarted[urgentNotStarted.length-1]} — ${todoRoles}`);
+        }
+        if (normalNotStarted.length) {
+          if (!normalPending.length) normalLines.push(`**${name}** :`);
+          normalLines.push(`  • Ch.${normalNotStarted[0]}~${normalNotStarted[normalNotStarted.length-1]} — ${todoRoles}`);
+        }
+      }
       grouped.forEach(({ start, end, todo }) => {
         targetLines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
       });
@@ -670,23 +689,42 @@ client.on('messageCreate', async (message) => {
       if (!pending.length && !notStarted.length) continue;
       // Déterminer si urgent (chapPlanning cette semaine ou semaine prochaine)
       const chapP = project.chapPlanning;
-      const isUrgent = chapP && (
-        pending.some(([n]) => Number(n) === chapP || Number(n) === chapP + 1) ||
-        notStarted.some(n => Number(n) === chapP || Number(n) === chapP + 1)
-      );
-      const targetLines = isUrgent ? urgentLines : normalLines;
-      targetLines.push(`**${name}** :`);
-      const grouped = [];
-      pending.forEach(([n, ch]) => {
-        const available = getAvailableTodos(ch);
-        const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
-        if (!todo) return;
-        const last = grouped[grouped.length - 1];
-        const hasLetter = n.match(/[a-zA-Z]/);
-        const lastHasLetter = last?.end?.match(/[a-zA-Z]/);
-        const isConsecutive = last && last.todo === todo && !hasLetter && !lastHasLetter && Number(n) === Number(last.end) + 1;
-        if (isConsecutive) { last.end = n; } else { grouped.push({ start: n, end: n, todo }); }
-      });
+      const urgentChaps = new Set([chapP, chapP ? chapP + 1 : null].filter(Boolean).map(String));
+      const urgentPending = pending.filter(([n]) => urgentChaps.has(String(Math.floor(parseFloat(n)))));
+      const normalPending = pending.filter(([n]) => !urgentChaps.has(String(Math.floor(parseFloat(n)))));
+      const buildGroup = (items, targetLines, label) => {
+        if (!items.length) return;
+        targetLines.push(`**${label}** :`);
+        const grouped = [];
+        items.forEach(([n, ch]) => {
+          const available = getAvailableTodos(ch);
+          const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
+          if (!todo) return;
+          const last = grouped[grouped.length - 1];
+          const hasLetter = n.match(/[a-zA-Z]/);
+          const lastHasLetter = last?.end?.match(/[a-zA-Z]/);
+          const isConsecutive = last && last.todo === todo && !hasLetter && !lastHasLetter && Number(n) === Number(last.end) + 1;
+          if (isConsecutive) { last.end = n; } else { grouped.push({ start: n, end: n, todo }); }
+        });
+        grouped.forEach(({ start, end, todo }) => {
+          targetLines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
+        });
+      };
+      if (urgentPending.length) buildGroup(urgentPending, urgentLines, name);
+      if (normalPending.length) buildGroup(normalPending, normalLines, name);
+      if (notStarted.length) {
+        const urgentNotStarted = notStarted.filter(n => urgentChaps.has(n));
+        const normalNotStarted = notStarted.filter(n => !urgentChaps.has(n));
+        const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
+        if (urgentNotStarted.length) {
+          if (!urgentPending.length) urgentLines.push(`**${name}** :`);
+          urgentLines.push(`  • Ch.${urgentNotStarted[0]}~${urgentNotStarted[urgentNotStarted.length-1]} — ${todoRoles}`);
+        }
+        if (normalNotStarted.length) {
+          if (!normalPending.length) normalLines.push(`**${name}** :`);
+          normalLines.push(`  • Ch.${normalNotStarted[0]}~${normalNotStarted[normalNotStarted.length-1]} — ${todoRoles}`);
+        }
+      }
       grouped.forEach(({ start, end, todo }) => {
         targetLines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
       });
