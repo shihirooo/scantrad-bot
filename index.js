@@ -10,7 +10,7 @@ const client = new Client({
   ],
 });
 
-// --- MongoDB Schema ---
+// --- MongoDB Schemas ---
 const projectSchema = new mongoose.Schema({
   name: String,
   roles: [String],
@@ -20,9 +20,16 @@ const projectSchema = new mongoose.Schema({
   saisons: { type: Map, of: { debut: Number, fin: Number } },
   chapters: { type: Map, of: Map },
   jour: String,
+  chapPlanning: Number,
+});
+
+const planningSchema = new mongoose.Schema({
+  semaine: String,
+  entries: [{ jour: String, projectName: String }]
 });
 
 const Project = mongoose.model('Project', projectSchema);
+const Planning = mongoose.models.Planning || mongoose.model('Planning', planningSchema);
 
 // --- Helpers ---
 async function loadData() {
@@ -41,6 +48,7 @@ async function loadData() {
         [...(p.chapters || new Map())].map(([k, v]) => [k.replace(/·/g, '.'), Object.fromEntries(v)])
       ),
       jour: p.jour || null,
+      chapPlanning: p.chapPlanning || null,
     };
   }
   return data;
@@ -60,6 +68,7 @@ async function saveProject(name, project) {
         Object.entries(project.chapters || {}).map(([k, v]) => [k.replace(/\./g, '·'), v])
       ),
       jour: project.jour || null,
+      chapPlanning: project.chapPlanning || null,
     },
     { upsert: true, new: true }
   );
@@ -67,6 +76,14 @@ async function saveProject(name, project) {
 
 async function deleteProject(name) {
   await Project.deleteOne({ name });
+}
+
+function getSemaine(offset = 0) {
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7) + offset * 7);
+  startOfWeek.setHours(0, 0, 0, 0);
+  return startOfWeek;
 }
 
 const ROLES_ORDER = ['raws', 'clean', 'trad', 'check', 'edit', 'qcheck'];
@@ -110,6 +127,78 @@ function findProjectByChannel(data, channelId) {
   )?.[0];
 }
 
+function buildPlanning(data, tempEntries, offset = 0) {
+  const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+  const planningByDay = {};
+  for (const jour of jours) planningByDay[jour] = [];
+  for (const [name, project] of Object.entries(data)) {
+    if (project.jour) planningByDay[project.jour].push(name);
+  }
+  for (const { jour, projectName } of tempEntries) {
+    if (planningByDay[jour] && !planningByDay[jour].includes(projectName)) {
+      planningByDay[jour].push(projectName);
+    }
+  }
+  const lines = [];
+  for (const jour of jours) {
+    const projets = planningByDay[jour];
+    if (!projets.length) continue;
+    lines.push(`**${jour.charAt(0).toUpperCase() + jour.slice(1)}**`);
+    for (const name of projets) {
+      const project = data[name];
+      if (!project) continue;
+      let chapNum = project.chapPlanning;
+      if (offset > 0 && chapNum) {
+        // Semaine suivante : +1 si le chapPlanning actuel est terminé
+        const chapStr = String(chapNum);
+        const ch = project.chapters[chapStr];
+        if (ch && isChapterDone(ch)) chapNum = chapNum + 1;
+      }
+      if (!chapNum) {
+        lines.push(`• **${name}** — ❓ Chapitre non défini (utilise \`!setchap <n>\`)`);
+        continue;
+      }
+      const chapStr = String(chapNum);
+      const ch = project.chapters[chapStr];
+      if (!ch) {
+        lines.push(`• **${name}** Ch.${chapNum} — ⬜ Non commencé`);
+        continue;
+      }
+      const available = getAvailableTodos(ch);
+      if (isChapterDone(ch) || !available.length) {
+        lines.push(`• **${name}** Ch.${chapNum} — ✅ Prêt`);
+      } else {
+        lines.push(`• **${name}** Ch.${chapNum} — ❌ ${available.map(r => r.toUpperCase()).join(', ')}`);
+      }
+    }
+    lines.push('');
+  }
+  return lines;
+}
+
+// Tâche automatique : chaque dimanche à minuit, avancer chapPlanning si terminé
+async function majChapPlanning() {
+  const data = await loadData();
+  for (const [name, project] of Object.entries(data)) {
+    if (!project.chapPlanning) continue;
+    const chapStr = String(project.chapPlanning);
+    const ch = project.chapters[chapStr];
+    if (ch && isChapterDone(ch)) {
+      project.chapPlanning = project.chapPlanning + 1;
+      await saveProject(name, project);
+      console.log(`✅ chapPlanning de ${name} avancé au chapitre ${project.chapPlanning}`);
+    }
+  }
+}
+
+// Vérifier chaque dimanche
+setInterval(async () => {
+  const now = new Date();
+  if (now.getDay() === 0 && now.getHours() === 0 && now.getMinutes() < 5) {
+    await majChapPlanning();
+  }
+}, 5 * 60 * 1000);
+
 client.on('ready', () => {
   console.log(`✅ Bot connecté en tant que ${client.user.tag}`);
 });
@@ -127,9 +216,9 @@ client.on('messageCreate', async (message) => {
       .addFields(
         { name: '⚙️ Setup', value: '`!projet "<nom>" <roles>` — Créer un projet (ex: `!projet "A Saint" raws,trad,clean,edit,qcheck`)\n`!lier <nom>` — Lier ce salon à un projet\n`!delier` — Délier ce salon du projet\n`!ajoutrole <role>` — Ajouter un rôle au projet\n`!supprole <role>` — Supprimer un rôle du projet\n`!projets` — Lister tous les projets\n`!suppprojet <nom>` — Supprimer un projet' },
         { name: '📺 Saisons', value: '`!ajoutsaison <nom> <debut>-<fin>` — Créer une saison (ex: `!ajoutsaison S1 1-54`)\n`!ajoutsaison <nom> <debut>` — Saison sans fin connue (ex: `!ajoutsaison S4 128`)\n`!saisons` — Voir toutes les saisons\n`!chapitres <saison>` — Chapitres d\'une saison (ex: `!chapitres S4`)' },
-        { name: '📌 Chapitres', value: '`Chapitre <n> : <role>` — Marquer terminé (ex: `Chapitre 145 : raws, trad`)\n`Chapitre <n>-<n> : <role>` — Plusieurs chapitres (ex: `Chapitre 145-146-147 : raws`)\n`!fait <n> <role>` — Marquer un rôle terminé\n`!majo <debut>-<fin> <role>` — Marquer en masse (ex: `!majo 1-140 raws`)\n`!chapitres` — Les 5 prochains chapitres en cours\n`!chapitre <n>` — Détail d\'un chapitre\n`!suppchap <n>` — Supprimer un chapitre' },
-        { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales du projet\n`!mestaches` — Vos tâches assignées\n`!taches @user` — Voir les tâches d\'un membre\n`!mesprojets` — Voir tous vos projets et rôles\n`!assigner <role> @user` — Assigner un rôle\n`!desassigner <role>` — Retirer une assignation\n`!equipe` — Voir l\'équipe du projet' },
-        { name: '📅 Planning', value: '`!planning` — Voir le planning de la semaine\n`!setjour <jour>` — Définir le jour fixe d\'un projet (ex: `!setjour lundi`)\n`!suppjour` — Supprimer le jour fixe d\'un projet\n`!ajouterplanning <jour> <projet>` — Ajouter un projet au planning cette semaine\n`!retirerplanning <jour> <projet>` — Retirer un projet du planning cette semaine' },
+        { name: '📌 Chapitres', value: '`Chapitre <n> : <role>` — Marquer terminé (ex: `Chapitre 145 : raws, trad`)\n`Chapitre <n>-<n> : <role>` — Plusieurs chapitres (ex: `Chapitre 145-147 : raws`)\n`<role> <n>` — Raccourci (ex: `trad 145`)\n`!fait <n> <role>` — Marquer un rôle terminé\n`!majo <debut>-<fin> <role>` — Marquer en masse\n`!chapitres` — Les 5 prochains chapitres\n`!chapitre <n>` — Détail d\'un chapitre\n`!suppchap <n>` — Supprimer un chapitre' },
+        { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales\n`!mestaches` — Vos tâches assignées\n`!taches @user` — Tâches d\'un membre\n`!mesprojets` — Vos projets et rôles\n`!assigner <role> @user` — Assigner un rôle\n`!desassigner <role>` — Retirer une assignation\n`!equipe` — Équipe du projet' },
+        { name: '📅 Planning', value: '`!planning` — Planning de la semaine\n`!planningsuivant` — Planning de la semaine prochaine\n`!setchap <n>` — Définir le chapitre du planning\n`!setjour <jour>` — Définir le jour fixe (ex: `!setjour lundi`)\n`!suppjour` — Supprimer le jour fixe\n`!ajouterplanning <jour> <projet>` — Ajouter au planning cette semaine\n`!retirerplanning <jour> <projet>` — Retirer du planning cette semaine' },
         { name: '❓ Aide', value: '`!aide` — Afficher cette aide' }
       )
       .setFooter({ text: 'Cookie Voie Lactée ✨' });
@@ -160,13 +249,13 @@ client.on('messageCreate', async (message) => {
 
   // ─── !projet <nom> <roles> ───────────────────────────────
   if (lower.startsWith('!projet ')) {
-   const projetMatch = content.slice(8).trim().match(/^"([^"]+)"\s+(\S+)|^(\S+)\s+(\S+)|^"([^"]+)"|^(\S+)/);
+    const projetMatch = content.slice(8).trim().match(/^"([^"]+)"\s+(\S+)|^(\S+)\s+(\S+)|^"([^"]+)"|^(\S+)/);
     const name = projetMatch[1] || projetMatch[3] || projetMatch[5] || projetMatch[6];
     const rolesRaw = projetMatch[2] || projetMatch[4] || 'raws,trad,clean,edit,qcheck';
     const roles = rolesRaw.split(',').map(r => r.trim().toLowerCase());
     const data = await loadData();
     if (data[name]) return message.reply(`Le projet **${name}** existe déjà.`);
-    await saveProject(name, { roles, chapters: {}, channelId: null, channelIds: [], assignments: {}, saisons: {} });
+    await saveProject(name, { roles, chapters: {}, channelId: null, channelIds: [], assignments: {}, saisons: {}, jour: null, chapPlanning: null });
     return message.reply(`✅ Projet **${name}** créé avec les rôles : ${roles.join(', ')}\nUtilise \`!lier ${name}\` dans le salon de ce projet.`);
   }
 
@@ -199,11 +288,10 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ Ce salon a été délié du projet **${projectName}**.`);
   }
 
-// ─── Format alternatif : > Chapitre X, Y\n> Role (Fait) ─
+  // ─── Format alternatif : > Chapitre X, Y\n> Role (Fait) ─
   const faitLines = content.match(/>\s*([a-zA-Z]+)\s*\(fait\)/gi);
   const altMatch = faitLines && content.includes('(Fait)') ? content.match(/chapitre\s+([\d,\s]+)/i) : null;
   const isAltFormat = !!(altMatch && faitLines);
-  console.log('altMatch:', altMatch, 'faitLines:', faitLines, 'isAltFormat:', isAltFormat);
   if (isAltFormat) {
     const chNums = altMatch[1].split(',').map(s => s.trim()).filter(Boolean);
     const data = await loadData();
@@ -236,7 +324,7 @@ client.on('messageCreate', async (message) => {
     return message.reply(reply);
   }
 
-// ─── Format raccourci : role numéro ──────────────────────
+  // ─── Format raccourci : role numéro ──────────────────────
   const shortMatch = content.match(/^(raws|clean|trad|check|edit|qcheck|qch|q-check)\s+([\d]+(?:[.,]\d+)?[a-zA-Z]?(?:(?:[,+à]|a\s)[\d]+(?:[.,]\d+)?[a-zA-Z]?)*)\s*$/i);
   if (shortMatch) {
     let role = shortMatch[1].toLowerCase().replace(/-/g, '');
@@ -265,9 +353,8 @@ client.on('messageCreate', async (message) => {
   }
 
   // ─── Détecter "Chapitre N : role" (format naturel) ───────
-  const naturalMatch = content.match(/^(?:chapitre|chap)\s+([\d]+(?:[.,]\d+)?[a-zA-Z]?(?:(?:[-,]|\s*(?:à|a)\s*)[\d]+(?:[.,]\d+)?[a-zA-Z]?)*)\s*(?:[:,]|-\s*(?=[a-zA-Z]))\s*(.+)$/i);
+  const naturalMatch = content.match(/^(?:chapitre|chap)\s+([\d]+(?:[.,]\d+)?[a-zA-Z]?(?:(?:\s*(?:à|a)\s*|[-,])[\d]+(?:[.,]\d+)?[a-zA-Z]?)*)\s*(?:[:,]|-\s*(?=[a-zA-Z]))\s*(.+)$/i);
   if (naturalMatch) {
-    console.log('naturalMatch:', naturalMatch[1], naturalMatch[2]);
     const rangeMatch = naturalMatch[1].match(/^(\d+)\s*(?:à|a)\s*(\d+)$/i);
     const isDecimal = naturalMatch[1].includes('.');
     let chNums;
@@ -314,7 +401,8 @@ client.on('messageCreate', async (message) => {
   if (lower.startsWith('!fait ')) {
     const parts = content.slice(6).trim().split(' ');
     const chNum = parts[0];
-    const role = parts[1]?.toLowerCase();
+    let role = parts[1]?.toLowerCase().replace(/-/g, '');
+    if (role === 'qch') role = 'qcheck';
     if (!chNum || !role) return message.reply('Usage : `!fait <chapitre> <role>`');
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
@@ -342,7 +430,7 @@ client.on('messageCreate', async (message) => {
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
     const ch = project.chapters[chNum];
-    if (!ch) return message.reply(`Ch.${chNum} non trouvé. Utilise \`Chapitre ${chNum} : raws\` pour commencer.`);
+    if (!ch) return message.reply(`Ch.${chNum} non trouvé.`);
     const available = getAvailableTodos(ch);
     const lines = project.roles.map(r => {
       if (ch[r] === true) return `✅ ${r}`;
@@ -364,8 +452,7 @@ client.on('messageCreate', async (message) => {
     const project = data[projectName];
     const chapters = Object.entries(project.chapters)
       .sort(([a], [b]) => {
-        const numA = parseFloat(a);
-        const numB = parseFloat(b);
+        const numA = parseFloat(a), numB = parseFloat(b);
         if (numA !== numB) return numA - numB;
         return a.localeCompare(b);
       });
@@ -380,7 +467,7 @@ client.on('messageCreate', async (message) => {
     }
     const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
     const lines = toShow.map(([n, ch]) => {
-      if (!ch) return `🔄 **Ch.${n}** — en attente : **${premiers.map(r => r.toUpperCase()).join(', ')}**`;
+      if (!ch) return `⬜ **Ch.${n}** — en attente : **${premiers.map(r => r.toUpperCase()).join(', ')}**`;
       const available = getAvailableTodos(ch);
       const attente = available.length ? `— en attente : **${available.map(r => r.toUpperCase()).join(', ')}**` : '— terminé !';
       return `🔄 **Ch.${n}** ${attente}`;
@@ -400,8 +487,7 @@ client.on('messageCreate', async (message) => {
     const project = data[projectName];
     const allChapters = Object.entries(project.chapters)
       .sort(([a], [b]) => {
-        const numA = parseFloat(a);
-        const numB = parseFloat(b);
+        const numA = parseFloat(a), numB = parseFloat(b);
         if (numA !== numB) return numA - numB;
         return a.localeCompare(b);
       });
@@ -440,24 +526,14 @@ client.on('messageCreate', async (message) => {
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
     const chapters = Object.entries(project.chapters);
-    const doneNums = new Set(
-      chapters
-        .filter(([, c]) => isChapterDone(c))
-        .map(([n]) => n.replace(/[.,]\d+[a-zA-Z]*$/, '').replace(/[a-zA-Z]+$/, ''))
-    );
+    const doneNums = new Set(chapters.filter(([, c]) => isChapterDone(c)).map(([n]) => n.replace(/[.,]\d+[a-zA-Z]*$/, '').replace(/[a-zA-Z]+$/, '')));
     const done = doneNums.size;
     const saisons = project.saisons || {};
     const dernierTermine = Math.max(...chapters.filter(([, c]) => isChapterDone(c)).map(([n]) => parseFloat(n)));
-    const saisonEnCours = Object.values(saisons)
-      .sort((a, b) => b.fin - a.fin)
-      .find(s => s.fin !== null);
+    const saisonEnCours = Object.values(saisons).sort((a, b) => b.debut - a.debut).find(s => s.fin === null || s.debut <= dernierTermine + 1);
     const total = saisonEnCours?.fin ?? null;
     const roleLines = ROLES_ORDER.filter(r => project.roles.includes(r)).map(r => {
-      const doneForRole = new Set(
-        chapters
-          .filter(([, c]) => c[r] === true)
-          .map(([n]) => n.replace(/[.,]\d+[a-zA-Z]*$/, '').replace(/[a-zA-Z]+$/, ''))
-      );
+      const doneForRole = new Set(chapters.filter(([, c]) => c[r] === true).map(([n]) => n.replace(/[.,]\d+[a-zA-Z]*$/, '').replace(/[a-zA-Z]+$/, '')));
       const count = doneForRole.size;
       return `**${r.toUpperCase()}** : ${count}${total ? `/${total}` : ''}`;
     }).join('\n');
@@ -498,8 +574,7 @@ client.on('messageCreate', async (message) => {
           return userRoles.some(r => ch[r] === false && available.includes(r));
         })
         .sort(([a], [b]) => {
-          const numA = parseFloat(a);
-          const numB = parseFloat(b);
+          const numA = parseFloat(a), numB = parseFloat(b);
           if (numA !== numB) return numA - numB;
           return a.localeCompare(b);
         });
@@ -516,7 +591,6 @@ client.on('messageCreate', async (message) => {
       if (pending.length || notStarted.length) {
         lines.push(`**${name}** :`);
         const grouped = [];
-        console.log('pending Honey:', pending.map(([n]) => n));
         pending.forEach(([n, ch]) => {
           const available = getAvailableTodos(ch);
           const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
@@ -524,15 +598,8 @@ client.on('messageCreate', async (message) => {
           const last = grouped[grouped.length - 1];
           const hasLetter = n.match(/[a-zA-Z]/);
           const lastHasLetter = last?.end?.match(/[a-zA-Z]/);
-          const isConsecutive = last && last.todo === todo
-            && !hasLetter
-            && !lastHasLetter
-            && Number(n) === Number(last.end) + 1;
-          if (isConsecutive) {
-            last.end = n;
-          } else {
-            grouped.push({ start: n, end: n, todo });
-          }
+          const isConsecutive = last && last.todo === todo && !hasLetter && !lastHasLetter && Number(n) === Number(last.end) + 1;
+          if (isConsecutive) { last.end = n; } else { grouped.push({ start: n, end: n, todo }); }
         });
         grouped.forEach(({ start, end, todo }) => {
           lines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
@@ -548,6 +615,67 @@ client.on('messageCreate', async (message) => {
     if (!lines.length) return message.reply('✅ Tu n\'as aucune tâche en attente !');
     const embed = new EmbedBuilder()
       .setTitle(`📋 Tâches de ${message.author.username}`)
+      .setDescription(lines.join('\n'))
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
+  }
+
+  // ─── !taches @user ───────────────────────────────────────
+  if (lower.startsWith('!taches ')) {
+    const userId = message.mentions.users.first()?.id;
+    if (!userId) return message.reply('Usage : `!taches @user`');
+    const data = await loadData();
+    const lines = [];
+    for (const [name, project] of Object.entries(data)) {
+      const userRoles = project.assignments[userId] || [];
+      if (!userRoles.length) continue;
+      const pending = Object.entries(project.chapters)
+        .filter(([, ch]) => {
+          const available = getAvailableTodos(ch);
+          return userRoles.some(r => ch[r] === false && available.includes(r));
+        })
+        .sort(([a], [b]) => {
+          const numA = parseFloat(a), numB = parseFloat(b);
+          if (numA !== numB) return numA - numB;
+          return a.localeCompare(b);
+        });
+      const notStarted = [];
+      for (const [, saison] of Object.entries(project.saisons || {})) {
+        const fin = saison.fin ?? Math.max(...Object.keys(project.chapters).map(n => parseInt(n)).filter(n => !isNaN(n)));
+        for (let i = saison.debut; i <= fin; i++) {
+          const n = String(i);
+          if (!project.chapters[n] && userRoles.some(r => ['raws', 'trad'].includes(r))) {
+            notStarted.push(n);
+          }
+        }
+      }
+      if (pending.length || notStarted.length) {
+        lines.push(`**${name}** :`);
+        const grouped = [];
+        pending.forEach(([n, ch]) => {
+          const available = getAvailableTodos(ch);
+          const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
+          if (!todo) return;
+          const last = grouped[grouped.length - 1];
+          const hasLetter = n.match(/[a-zA-Z]/);
+          const lastHasLetter = last?.end?.match(/[a-zA-Z]/);
+          const isConsecutive = last && last.todo === todo && !hasLetter && !lastHasLetter && Number(n) === Number(last.end) + 1;
+          if (isConsecutive) { last.end = n; } else { grouped.push({ start: n, end: n, todo }); }
+        });
+        grouped.forEach(({ start, end, todo }) => {
+          lines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
+        });
+        if (notStarted.length) {
+          const first = notStarted[0];
+          const last = notStarted[notStarted.length - 1];
+          const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
+          lines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
+        }
+      }
+    }
+    if (!lines.length) return message.reply(`✅ <@${userId}> n'a aucune tâche en attente !`);
+    const embed = new EmbedBuilder()
+      .setTitle(`📋 Tâches de <@${userId}>`)
       .setDescription(lines.join('\n'))
       .setColor(0xc9a4ff);
     return message.reply({ embeds: [embed] });
@@ -577,7 +705,7 @@ client.on('messageCreate', async (message) => {
     project.roles.push(role);
     Object.values(project.chapters).forEach(ch => ch[role] = false);
     await saveProject(projectName, project);
-    return message.reply(`✅ Rôle **${role}** ajouté au projet **${projectName}** et à tous les chapitres existants.`);
+    return message.reply(`✅ Rôle **${role}** ajouté au projet **${projectName}**.`);
   }
 
   // ─── !supprole <role> ────────────────────────────────────
@@ -611,73 +739,13 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ Saison **${nom}** enregistrée : chapitres ${match[1]} à ${match[2] ?? '?'}.`);
   }
 
-// ─── !taches @user ────────────────────────────────────────
-  if (lower.startsWith('!taches ')) {
-    const userId = message.mentions.users.first()?.id;
-    if (!userId) return message.reply('Usage : `!taches @user`');
-    const data = await loadData();
-    const lines = [];
-    for (const [name, project] of Object.entries(data)) {
-      const userRoles = project.assignments[userId] || [];
-      if (!userRoles.length) continue;
-      const pending = Object.entries(project.chapters)
-        .filter(([, ch]) => {
-          const available = getAvailableTodos(ch);
-          return userRoles.some(r => ch[r] === false && available.includes(r));
-        })
-        .sort(([a], [b]) => parseFloat(a) - parseFloat(b));
-      const notStarted = [];
-      for (const [, saison] of Object.entries(project.saisons || {})) {
-        const fin = saison.fin ?? Math.max(...Object.keys(project.chapters).map(n => parseInt(n)).filter(n => !isNaN(n)));
-        for (let i = saison.debut; i <= fin; i++) {
-          const n = String(i);
-          if (!project.chapters[n] && userRoles.some(r => ['raws', 'trad'].includes(r))) {
-            notStarted.push(n);
-          }
-        }
-      }
-      if (pending.length || notStarted.length) {
-        lines.push(`**${name}** :`);
-        const grouped = [];
-        console.log('pending Honey:', pending.map(([n]) => n));
-        pending.forEach(([n, ch]) => {
-          const available = getAvailableTodos(ch);
-          const todo = userRoles.filter(r => ch[r] === false && available.includes(r)).map(r => r.toUpperCase()).join(', ');
-          if (!todo) return;
-          const last = grouped[grouped.length - 1];
-          const nextNum = Number(last?.end) + 1;
-          if (last && last.todo === todo && !n.match(/[a-zA-Z]/) && !last.end?.match(/[a-zA-Z]/) && Number(n) === nextNum) {
-            last.end = n;
-          } else {
-            grouped.push({ start: n, end: n, todo });
-          }
-        });
-        grouped.forEach(({ start, end, todo }) => {
-          lines.push(start === end ? `  • Ch.${start} — ${todo}` : `  • Ch.${start}~${end} — ${todo}`);
-        });
-        if (notStarted.length) {
-          const first = notStarted[0];
-          const last = notStarted[notStarted.length - 1];
-          const todoRoles = userRoles.filter(r => ['raws', 'trad'].includes(r)).map(r => r.toUpperCase()).join(', ');
-          lines.push(`  • Ch.${first}~${last} — ${todoRoles}`);
-        }
-      }
-    }
-    if (!lines.length) return message.reply(`✅ <@${userId}> n'a aucune tâche en attente !`);
-    const embed = new EmbedBuilder()
-      .setTitle(`📋 Tâches de <@${userId}>`)
-      .setDescription(lines.join('\n'))
-      .setColor(0xc9a4ff);
-    return message.reply({ embeds: [embed] });
-  }
-
   // ─── !saisons ────────────────────────────────────────────
   if (lower === '!saisons') {
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const saisons = data[projectName].saisons || {};
-    if (!Object.keys(saisons).length) return message.reply('Aucune saison enregistrée. Utilise `!ajoutsaison S1 1-54`');
+    if (!Object.keys(saisons).length) return message.reply('Aucune saison enregistrée.');
     const lines = Object.entries(saisons).map(([nom, s]) => `**${nom}** : Ch.${s.debut} ~ Ch.${s.fin ?? '?'}`).join('\n');
     const embed = new EmbedBuilder()
       .setTitle(`📺 Saisons de **${projectName}**`)
@@ -712,15 +780,18 @@ client.on('messageCreate', async (message) => {
     }
     const premiers = ['raws', 'trad'].filter(r => project.roles.includes(r));
     const lines = allChaps.map(([n, ch]) => {
-      if (!ch) return `🔄 **Ch.${n}** — en attente : **${premiers.map(r => r.toUpperCase()).join(', ')}**`;
+      if (!ch) return `⬜ **Ch.${n}** — en attente : **${premiers.map(r => r.toUpperCase()).join(', ')}**`;
       const available = getAvailableTodos(ch);
       const attente = available.length ? `— en attente : **${available.map(r => r.toUpperCase()).join(', ')}**` : '— terminé !';
       return `${isChapterDone(ch) ? '✅' : '🔄'} **Ch.${n}** ${attente}`;
     }).join('\n');
     if (!lines) return message.reply(`Aucun chapitre pour la saison **${saisonNom}**.`);
+    const isSS = saisonNom.toUpperCase() === 'SS';
+    const titre = isSS ? 'Side Story' : `Saison ${saisonNom.replace(/^S/i, '')}`;
+    const fin = isSS ? 'Fin des Side Story' : `Fin de la saison ${saisonNom.replace(/^S/i, '')}`;
     const embed = new EmbedBuilder()
-      .setTitle(`📺 ${projectName} — ${saisonNom.toUpperCase() === 'SS' ? 'Side Story' : `Saison ${saisonNom.replace(/^S/i, '')}`} (Ch.${saison.debut}~${saison.fin ?? '?'})`)
-      .setDescription(lines + (saison.fin ? `\n\n🏁 **${saisonNom.toUpperCase() === 'SS' ? 'Fin des Side Story' : `Fin de la saison ${saisonNom.replace(/^S/i, '')}`}**` : ''))
+      .setTitle(`📺 ${projectName} — ${titre} (Ch.${saison.debut}~${saison.fin ?? '?'})`)
+      .setDescription(lines + (saison.fin ? `\n\n🏁 **${fin}**` : ''))
       .setColor(0xc9a4ff);
     return message.reply({ embeds: [embed] });
   }
@@ -729,7 +800,8 @@ client.on('messageCreate', async (message) => {
   if (lower.startsWith('!majo ')) {
     const parts = content.slice(6).trim().split(' ');
     const range = parts[0];
-    const role = parts[1]?.toLowerCase();
+    let role = parts[1]?.toLowerCase().replace(/-/g, '');
+    if (role === 'qch') role = 'qcheck';
     const match = range.match(/^(\d+)-(\d+)$/);
     if (!match || !role) return message.reply('Usage : `!majo 1-140 raws`');
     const start = Number(match[1]);
@@ -756,7 +828,7 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ Chapitres ${start} à ${end} — **${role}** marqués comme terminés !`);
   }
 
-// ─── !suppprojet <nom> ───────────────────────────────────
+  // ─── !suppprojet <nom> ───────────────────────────────────
   if (lower.startsWith('!suppprojet ')) {
     const name = content.slice(12).trim();
     const data = await loadData();
@@ -765,7 +837,7 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ Projet **${name}** supprimé.`);
   }
 
-// ─── !desassigner <role> ─────────────────────────────────
+  // ─── !desassigner <role> ─────────────────────────────────
   if (lower.startsWith('!desassigner ')) {
     const role = content.slice(13).trim().toLowerCase();
     const data = await loadData();
@@ -779,7 +851,7 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ Rôle **${role}** retiré de tes assignations sur **${projectName}**.`);
   }
 
-// ─── !equipe ─────────────────────────────────────────────
+  // ─── !equipe ─────────────────────────────────────────────
   if (lower === '!equipe') {
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
@@ -812,16 +884,16 @@ client.on('messageCreate', async (message) => {
     }
     if (!lines.length) return message.reply('Tu n\'es assigné(e) à aucun projet.');
     const embed = new EmbedBuilder()
-      .setTitle(`🗂️ Mes projets`)
+      .setTitle('🗂️ Mes projets')
       .setDescription(lines.join('\n'))
       .setColor(0xc9a4ff);
     return message.reply({ embeds: [embed] });
   }
 
-// ─── !setjour <jour> ─────────────────────────────────────
+  // ─── !setjour <jour> ─────────────────────────────────────
   if (lower.startsWith('!setjour ')) {
     const jour = content.slice(9).trim().toLowerCase();
-    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
     if (!jours.includes(jour)) return message.reply(`Jour invalide. Utilise : ${jours.join(', ')}`);
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
@@ -832,25 +904,42 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ Jour de sortie de **${projectName}** défini : **${jour}**`);
   }
 
+  // ─── !suppjour ───────────────────────────────────────────
+  if (lower === '!suppjour') {
+    const data = await loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    project.jour = null;
+    await saveProject(projectName, project);
+    return message.reply(`✅ Jour fixe supprimé pour **${projectName}**.`);
+  }
+
+  // ─── !setchap <n> ────────────────────────────────────────
+  if (lower.startsWith('!setchap ')) {
+    const chNum = parseInt(content.slice(9).trim());
+    if (isNaN(chNum)) return message.reply('Usage : `!setchap <numéro>`');
+    const data = await loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
+    const project = data[projectName];
+    project.chapPlanning = chNum;
+    await saveProject(projectName, project);
+    return message.reply(`✅ Chapitre du planning de **${projectName}** défini : **Ch.${chNum}**`);
+  }
+
   // ─── !ajouterplanning <jour> <projet> ────────────────────
   if (lower.startsWith('!ajouterplanning ')) {
     const parts = content.slice(17).trim().split(' ');
     const jour = parts[0].toLowerCase();
     const projectName = parts.slice(1).join(' ');
-    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
+    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
     if (!jours.includes(jour)) return message.reply(`Jour invalide. Utilise : ${jours.join(', ')}`);
     const data = await loadData();
     if (!data[projectName]) return message.reply(`Projet **${projectName}** introuvable.`);
-    // Stocker dans un planning temporaire (cette semaine)
-    const planningSchema = mongoose.models.Planning || mongoose.model('Planning', new mongoose.Schema({
-      semaine: String,
-      entries: [{ jour: String, projectName: String }]
-    }));
-    const now = new Date();
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay() + 1);
+    const startOfWeek = getSemaine(0);
     const semaine = startOfWeek.toISOString().split('T')[0];
-    await planningSchema.findOneAndUpdate(
+    await Planning.findOneAndUpdate(
       { semaine },
       { $push: { entries: { jour, projectName } } },
       { upsert: true }
@@ -858,80 +947,31 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ **${projectName}** ajouté au planning du **${jour}** pour cette semaine !`);
   }
 
-// ─── !retirerplanning <jour> <projet> ────────────────────
+  // ─── !retirerplanning <jour> <projet> ────────────────────
   if (lower.startsWith('!retirerplanning ')) {
     const parts = content.slice(17).trim().split(' ');
     const jour = parts[0].toLowerCase();
     const projectName = parts.slice(1).join(' ');
-    const planningSchema = mongoose.models.Planning || mongoose.model('Planning', new mongoose.Schema({
-      semaine: String,
-      entries: [{ jour: String, projectName: String }]
-    }));
-    const now = new Date();
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    const startOfWeek = getSemaine(0);
     const semaine = startOfWeek.toISOString().split('T')[0];
-    await planningSchema.findOneAndUpdate(
+    await Planning.findOneAndUpdate(
       { semaine },
       { $pull: { entries: { jour, projectName } } }
     );
     return message.reply(`✅ **${projectName}** retiré du planning du **${jour}** pour cette semaine !`);
   }
 
-// ─── !planning ───────────────────────────────────────────
+  // ─── !planning ───────────────────────────────────────────
   if (lower === '!planning') {
     const data = await loadData();
-    const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
-    const now = new Date();
-    const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    const startOfWeek = getSemaine(0);
     const endOfWeek = new Date(startOfWeek);
-    endOfWeek.setDate(startOfWeek.getDate() + 6);
+    endOfWeek.setDate(startOfWeek.getDate() + 5);
     const fmt = d => d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-    const planningSchema = mongoose.models.Planning || mongoose.model('Planning', new mongoose.Schema({
-      semaine: String,
-      entries: [{ jour: String, projectName: String }]
-    }));
     const semaine = startOfWeek.toISOString().split('T')[0];
-    const planningDoc = await planningSchema.findOne({ semaine });
+    const planningDoc = await Planning.findOne({ semaine });
     const tempEntries = planningDoc?.entries || [];
-    const planningByDay = {};
-    for (const jour of jours) planningByDay[jour] = [];
-    for (const [name, project] of Object.entries(data)) {
-      if (project.jour) planningByDay[project.jour].push(name);
-    }
-    for (const { jour, projectName } of tempEntries) {
-      if (!planningByDay[jour].includes(projectName)) planningByDay[jour].push(projectName);
-    }
-    const lines = [];
-    for (const jour of jours) {
-      const projets = planningByDay[jour];
-      if (!projets.length) continue;
-      lines.push(`**${jour.charAt(0).toUpperCase() + jour.slice(1)}**`);
-      for (const name of projets) {
-        const project = data[name];
-        if (!project) continue;
-        const chapEntries = Object.entries(project.chapters)
-          .sort(([a], [b]) => {
-            const numA = parseFloat(a), numB = parseFloat(b);
-            if (numA !== numB) return numA - numB;
-            return a.localeCompare(b);
-          });
-        const firstPending = chapEntries.find(([, ch]) => !isChapterDone(ch));
-        if (!firstPending) {
-          lines.push(`• **${name}** — ✅ Prêt`);
-          continue;
-        }
-        const [chNum, ch] = firstPending;
-        const available = getAvailableTodos(ch);
-        if (!available.length) {
-          lines.push(`• **${name}** Ch.${chNum} — ✅ Prêt`);
-        } else {
-          lines.push(`• **${name}** Ch.${chNum} — ❌ ${available.map(r => r.toUpperCase()).join(', ')}`);
-        }
-      }
-      lines.push('');
-    }
+    const lines = buildPlanning(data, tempEntries, 0);
     if (!lines.filter(l => l).length) return message.reply('Aucun projet dans le planning cette semaine.');
     const embed = new EmbedBuilder()
       .setTitle(`📅 Planning du ${fmt(startOfWeek)} au ${fmt(endOfWeek)}`)
@@ -939,7 +979,26 @@ client.on('messageCreate', async (message) => {
       .setColor(0xc9a4ff);
     return message.reply({ embeds: [embed] });
   }
-  });
+
+  // ─── !planningsuivant ────────────────────────────────────
+  if (lower === '!planningsuivant') {
+    const data = await loadData();
+    const startOfNextWeek = getSemaine(1);
+    const endOfNextWeek = new Date(startOfNextWeek);
+    endOfNextWeek.setDate(startOfNextWeek.getDate() + 5);
+    const fmt = d => d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+    const semaine = startOfNextWeek.toISOString().split('T')[0];
+    const planningDoc = await Planning.findOne({ semaine });
+    const tempEntries = planningDoc?.entries || [];
+    const lines = buildPlanning(data, tempEntries, 1);
+    if (!lines.filter(l => l).length) return message.reply('Aucun projet dans le planning la semaine prochaine.');
+    const embed = new EmbedBuilder()
+      .setTitle(`📅 Planning du ${fmt(startOfNextWeek)} au ${fmt(endOfNextWeek)}`)
+      .setDescription(lines.join('\n'))
+      .setColor(0xc9a4ff);
+    return message.reply({ embeds: [embed] });
+  }
+});
 
 const TOKEN = process.env.DISCORD_TOKEN;
 const MONGO_URI = process.env.MONGO_URI;
