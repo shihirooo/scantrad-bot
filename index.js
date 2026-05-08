@@ -878,17 +878,16 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ **${projectName}** retiré du planning du **${jour}** pour cette semaine !`);
   }
 
-  // ─── !planning ───────────────────────────────────────────
+// ─── !planning ───────────────────────────────────────────
   if (lower === '!planning') {
     const data = await loadData();
     const jours = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
     const now = new Date();
     const startOfWeek = new Date(now);
-    startOfWeek.setDate(now.getDate() - now.getDay() + 1);
+    startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7));
     const endOfWeek = new Date(startOfWeek);
     endOfWeek.setDate(startOfWeek.getDate() + 6);
     const fmt = d => d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
-    // Récupérer le planning temporaire de la semaine
     const planningSchema = mongoose.models.Planning || mongoose.model('Planning', new mongoose.Schema({
       semaine: String,
       entries: [{ jour: String, projectName: String }]
@@ -896,14 +895,11 @@ client.on('messageCreate', async (message) => {
     const semaine = startOfWeek.toISOString().split('T')[0];
     const planningDoc = await planningSchema.findOne({ semaine });
     const tempEntries = planningDoc?.entries || [];
-    // Construire le planning par jour
     const planningByDay = {};
     for (const jour of jours) planningByDay[jour] = [];
-    // Projets avec jour fixe
     for (const [name, project] of Object.entries(data)) {
       if (project.jour) planningByDay[project.jour].push(name);
     }
-    // Projets ajoutés manuellement cette semaine
     for (const { jour, projectName } of tempEntries) {
       if (!planningByDay[jour].includes(projectName)) planningByDay[jour].push(projectName);
     }
@@ -915,7 +911,6 @@ client.on('messageCreate', async (message) => {
       for (const name of projets) {
         const project = data[name];
         if (!project) continue;
-        // Trouver le premier chapitre en cours (ordre numérique)
         const chapEntries = Object.entries(project.chapters)
           .sort(([a], [b]) => {
             const numA = parseFloat(a), numB = parseFloat(b);
@@ -924,23 +919,20 @@ client.on('messageCreate', async (message) => {
           });
         const firstPending = chapEntries.find(([, ch]) => !isChapterDone(ch));
         if (!firstPending) {
-          lines.push(`✅ **${name}** — tout terminé !`);
+          lines.push(`• **${name}** — ✅ Prêt`);
           continue;
         }
         const [chNum, ch] = firstPending;
-        const roleLines = ROLES_ORDER.filter(r => project.roles.includes(r) && ch[r] !== undefined).map(r => {
-          const isDone = ch[r] === true;
-          const responsables = Object.entries(project.assignments || {})
-            .filter(([, roles]) => roles.includes(r))
-            .map(([userId]) => `<@${userId}>`)
-            .join(', ');
-          return `${isDone ? '✅' : '❌'} ${r.toUpperCase()}${responsables ? ` — ${responsables}` : ''}`;
-        }).join('\n');
-        lines.push(`📖 **${name}** — Ch.${chNum}\n${roleLines}`);
+        const available = getAvailableTodos(ch);
+        if (!available.length) {
+          lines.push(`• **${name}** Ch.${chNum} — ✅ Prêt`);
+        } else {
+          lines.push(`• **${name}** Ch.${chNum} — ❌ ${available.map(r => r.toUpperCase()).join(', ')}`);
+        }
       }
       lines.push('');
     }
-    if (!lines.length) return message.reply('Aucun projet dans le planning cette semaine.');
+    if (!lines.filter(l => l).length) return message.reply('Aucun projet dans le planning cette semaine.');
     const embed = new EmbedBuilder()
       .setTitle(`📅 Planning du ${fmt(startOfWeek)} au ${fmt(endOfWeek)}`)
       .setDescription(lines.join('\n'))
