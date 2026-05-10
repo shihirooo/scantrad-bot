@@ -384,7 +384,7 @@ client.on('messageCreate', async (message) => {
         chNums.push(String(i));
       }
     } else {
-      chNums = isDecimal ? [naturalMatch[1].trim()] : naturalMatch[1].split(/[-,]/).map(s => s.trim()).filter(Boolean);
+      chNums = isDecimal ? [naturalMatch[1].trim()] : naturalMatch[1].split(/\s*[-,]\s*/).map(s => s.trim()).filter(Boolean);
     }
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
