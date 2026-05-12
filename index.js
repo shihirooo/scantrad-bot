@@ -97,7 +97,7 @@ function getAvailableTodos(chapter) {
   if (exists('clean') && pending('clean') && done('raws')) available.push('clean');
   if (exists('trad') && pending('trad')) available.push('trad');
   if (exists('check') && pending('check') && done('trad')) available.push('check');
-  if (exists('edit') && pending('edit') && done('trad') && done('clean')) available.push('edit');
+  if (exists('edit') && pending('edit') && done('trad') && done('clean') && (!exists('check') || done('check'))) available.push('edit');
   if (exists('qcheck') && pending('qcheck') && done('edit')) available.push('qcheck');
   return available;
 }
@@ -372,6 +372,41 @@ client.on('messageCreate', async (message) => {
     return message.reply(reply + pingMsg);
   }
 
+// ─── Format chap N role (sans deux points) ───────────────
+  const chapShortMatch = content.match(/^(?:chapitre|chap)\s+([\d]+(?:[.,]\d+)?[a-zA-Z]?)\s+([a-zA-Z-]+)$/i);
+  if (chapShortMatch) {
+    const chNum = chapShortMatch[1].trim();
+    let role = chapShortMatch[2].toLowerCase().replace(/-/g, '').replace(/é/g, 'e').replace(/è/g, 'e').replace(/ê/g, 'e');
+    if (role === 'qch') role = 'qcheck';
+    const data = await loadData();
+    const projectName = findProjectByChannel(data, message.channelId);
+    if (!projectName) return;
+    const project = data[projectName];
+    if (!project.roles.includes(role)) return;
+    if (!project.chapters[chNum]) {
+      project.chapters[chNum] = {};
+      project.roles.forEach(r => project.chapters[chNum][r] = false);
+    }
+    if (project.chapters[chNum][role] === undefined) return;
+    project.chapters[chNum][role] = true;
+    if (isChapterDone(project.chapters[chNum])) project.chapters[chNum].done = true;
+    await saveProject(projectName, project);
+    const available = getAvailableTodos(project.chapters[chNum]);
+    const pings = [];
+    for (const r of available) {
+      const responsables = Object.entries(project.assignments || {})
+        .filter(([, roles]) => roles.includes(r))
+        .map(([userId]) => `<@${userId}>`);
+      pings.push(...responsables);
+    }
+    const uniquePings = [...new Set(pings)];
+    const pingMsg = uniquePings.length ? `\n${uniquePings.join(' ')} à toi !` : '';
+    const reply = available.length
+      ? `✅ **Ch.${chNum} — ${role}** marqué terminé !\nEn attente : **${available.map(r => r.toUpperCase()).join(', ')}**`
+      : `🎉 **Ch.${chNum}** entièrement terminé !`;
+    return message.reply(reply + pingMsg);
+  }
+
   // ─── Détecter "Chapitre N : role" (format naturel) ───────
   const naturalMatch = content.match(/^(?:chapitre|chap)\s+([\d]+(?:[.,]\d+)?[a-zA-Z]?(?:(?:\s*(?:à|a)\s*|[-,])[\d]+(?:[.,]\d+)?[a-zA-Z]?)*)\s*(?:[:,]|-\s*(?=[a-zA-Z]))\s*(.+)$/i);
   if (naturalMatch) {
@@ -391,7 +426,7 @@ client.on('messageCreate', async (message) => {
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet. Utilise `!lier <nom>`.');
     const project = data[projectName];
     const roles = naturalMatch[2].split(',').map(r => {
-      let role = r.trim().toLowerCase().split(' ')[0].replace(/-/g, '');
+      let role = r.trim().toLowerCase().split(' ')[0].replace(/-/g, '').replace(/é/g, 'e').replace(/è/g, 'e').replace(/ê/g, 'e');
       if (role === 'qch') role = 'qcheck';
       return role;
     }).filter(r => project.roles.includes(r));
