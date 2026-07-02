@@ -217,7 +217,7 @@ client.on('messageCreate', async (message) => {
         { name: '⚙️ Setup', value: '`!projet "<nom>" <roles>` — Créer un projet (ex: `!projet "A Saint" raws,trad,clean,edit,qcheck`)\n`!lier <nom>` — Lier ce salon à un projet\n`!delier` — Délier ce salon du projet\n`!ajoutrole <role>` — Ajouter un rôle au projet\n`!supprole <role>` — Supprimer un rôle du projet\n`!projets` — Lister tous les projets\n`!suppprojet <nom>` — Supprimer un projet' },
         { name: '📺 Saisons', value: '`!ajoutsaison <nom> <debut>-<fin>` — Créer une saison (ex: `!ajoutsaison S1 1-54`)\n`!ajoutsaison <nom> <debut>` — Saison sans fin connue (ex: `!ajoutsaison S4 128`)\n`!saisons` — Voir toutes les saisons\n`!chapitres <saison>` — Chapitres d\'une saison (ex: `!chapitres S4`)' },
         { name: '📌 Chapitres', value: '`Chapitre <n> : <role>` — Marquer terminé (ex: `Chapitre 145 : raws, trad`)\n`Chapitre <n>-<n> : <role>` — Plusieurs chapitres (ex: `Chapitre 145-147 : raws`)\n`<role> <n>` — Raccourci (ex: `trad 145`)\n`!fait <n> <role>` — Marquer un rôle terminé\n`!majo <debut>-<fin> <role>` — Marquer en masse\n`!chapitres` — Les 5 prochains chapitres\n`!chapitre <n>` — Détail d\'un chapitre\n`!suppchap <n>` — Supprimer un chapitre' },
-        { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales\n`!mestaches` — Vos tâches assignées\n`!taches @user` — Tâches d\'un membre\n`!mesprojets` — Vos projets et rôles\n`!assigner <role> @user` — Assigner un rôle\n`!desassigner <role>` — Retirer une assignation\n`!equipe` — Équipe du projet' },
+        { name: '📋 Suivi', value: '`!avancement` — Ce qu\'il reste à faire\n`!stats` — Stats globales\n`!mestaches` — Vos tâches assignées\n`!taches @user` — Tâches d\'un membre\n`!mesprojets` — Vos projets et rôles\n`!assigner <role> @user` — Assigner un rôle\n`!desassigner <role>` — Retirer votre assignation\n`!desassigner <role> @user` — Retirer l\'assignation d\'un membre\n`!equipe` — Équipe du projet' },
         { name: '📅 Planning', value: '`!planning` — Planning de la semaine\n`!planningsuivant` — Planning de la semaine prochaine\n`!setchap <n>` — Définir le chapitre du planning\n`!setjour <jour>` — Définir le jour fixe (ex: `!setjour lundi`)\n`!suppjour` — Supprimer le jour fixe\n`!ajouterplanning <jour> <projet>` — Ajouter au planning cette semaine\n`!retirerplanning <jour> <projet>` — Retirer du planning cette semaine' },
         { name: '❓ Aide', value: '`!aide` — Afficher cette aide' }
       )
@@ -949,8 +949,10 @@ client.on('messageCreate', async (message) => {
 
 // ─── !desassigner <role> @user ───────────────────────────
   if (lower.startsWith('!desassigner ')) {
-    const role = content.slice(13).trim().split(' ')[0].toLowerCase();
-    const userId = message.mentions.users.first()?.id || message.author.id;
+    const parts = content.slice(13).trim().split(' ');
+    const role = parts[0].toLowerCase();
+    const mentionedUser = message.mentions.users.first();
+    const userId = mentionedUser ? mentionedUser.id : message.author.id;
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
