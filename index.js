@@ -947,18 +947,18 @@ client.on('messageCreate', async (message) => {
     return message.reply(`✅ Projet **${name}** supprimé.`);
   }
 
-  // ─── !desassigner <role> ─────────────────────────────────
+// ─── !desassigner <role> @user ───────────────────────────
   if (lower.startsWith('!desassigner ')) {
-    const role = content.slice(13).trim().toLowerCase();
+    const role = content.slice(13).trim().split(' ')[0].toLowerCase();
+    const userId = message.mentions.users.first()?.id || message.author.id;
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
     const project = data[projectName];
-    const userId = message.author.id;
-    if (!project.assignments[userId]) return message.reply('Tu n\'as aucune assignation sur ce projet.');
+    if (!project.assignments[userId]) return message.reply('Cet utilisateur n\'a aucune assignation sur ce projet.');
     project.assignments[userId] = project.assignments[userId].filter(r => r !== role);
     await saveProject(projectName, project);
-    return message.reply(`✅ Rôle **${role}** retiré de tes assignations sur **${projectName}**.`);
+    return message.reply(`✅ Rôle **${role}** retiré de <@${userId}> sur **${projectName}**.`);
   }
 
   // ─── !equipe ─────────────────────────────────────────────
