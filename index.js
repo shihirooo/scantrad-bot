@@ -949,10 +949,10 @@ client.on('messageCreate', async (message) => {
 
 // ─── !desassigner <role> @user ───────────────────────────
   if (lower.startsWith('!desassigner ')) {
-    const parts = content.slice(13).trim().split(' ');
-    const role = parts[0].toLowerCase();
-    const mentionedUser = message.mentions.users.first();
-    const userId = mentionedUser ? mentionedUser.id : message.author.id;
+    const args = content.slice(13).trim();
+    const role = args.split(' ')[0].toLowerCase();
+    const mentionMatch = args.match(/<@!?(\d+)>/);
+    const userId = mentionMatch ? mentionMatch[1] : message.author.id;
     const data = await loadData();
     const projectName = findProjectByChannel(data, message.channelId);
     if (!projectName) return message.reply('Ce salon n\'est pas lié à un projet.');
